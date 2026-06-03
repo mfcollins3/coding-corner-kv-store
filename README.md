@@ -13,3 +13,16 @@ I approached and implemented each chapter of the article series.
 ## Required Software
 
 - [Go 1.26.3](https://go.dev)
+
+## Contents
+
+1. [Week 1: In-Memory Store](#in-memory-store)
+1. [Week 2: LSM Tree Foundations](v2/README.md)
+
+## In-Memory Store
+
+The initial implementation of the Key-Value Storage Engine uses a simple
+in-memory map/hashtable/associative array where I am storing values indexed by
+keys. I am supporting concurrency in this implementation by using a read/write
+mutex that allows multiple concurrent readers and enforcing single-threaded
+write access at any one time.

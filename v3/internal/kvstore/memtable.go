@@ -24,6 +24,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"log/slog"
 	"os"
@@ -42,6 +43,7 @@ type keyValue struct {
 
 type logEntry struct {
 	Op    string `json:"op"`
+	CRC32 uint32 `json:"crc32"`
 	Key   string `json:"key"`
 	Value string `json:"value"`
 }
@@ -84,12 +86,23 @@ func newMemtable() (*memtable, error) {
 		return nil, err
 	}
 
+	if err := clearDanglingSSTables(mt.ssTables); err != nil {
+		return nil, fmt.Errorf("failed to clear dangling SST tables: %w", err)
+	}
+
 	return mt, nil
 }
 
 func (m *memtable) Set(key, value string) error {
+	crc32 := crc32.NewIEEE()
+	_, err := crc32.Write([]byte(fmt.Sprintf("put,%s,%s", key, value)))
+	if err != nil {
+		return fmt.Errorf("failed to calculate CRC32: %w", err)
+	}
+
 	logEntry := logEntry{
 		Op:    "put",
+		CRC32: crc32.Sum32(),
 		Key:   key,
 		Value: value,
 	}
@@ -138,6 +151,50 @@ func (m *memtable) Get(key string) (string, bool, error) {
 	slog.Debug("negative_cache_insert", "key", "key")
 	m.negativeCache[key] = struct{}{}
 	return "", false, nil
+}
+
+func clearDanglingSSTables(ssTables []string) error {
+	set := make(map[string]struct{})
+	for _, ssTable := range ssTables {
+		set[filepath.Base(ssTable)] = struct{}{}
+	}
+
+	matches, err := filepath.Glob("sst-*.json")
+	if err != nil {
+		return fmt.Errorf("unable to find SST tables in current directory: %w", err)
+	}
+
+	removedAny := false
+	for _, filename := range matches {
+		if _, ok := set[filepath.Base(filename)]; ok {
+			continue
+		}
+
+		if err := os.Remove(filename); err != nil {
+			return fmt.Errorf(
+				"unable to remove dangling SST table %q: %w",
+				filename,
+				err,
+			)
+		}
+		removedAny = true
+	}
+
+	if removedAny {
+		dir, err := os.Open(".")
+		if err != nil {
+			return fmt.Errorf("unable to open current directory for sync: %w", err)
+		}
+		defer func() {
+			_ = dir.Close()
+		}()
+
+		if err := dir.Sync(); err != nil {
+			return fmt.Errorf("unable to sync current directory: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func initSSTables(mt *memtable) error {
@@ -371,6 +428,7 @@ func replayLog() (map[string]string, error) {
 	}()
 
 	reader := bufio.NewReader(file)
+	crc32 := crc32.NewIEEE()
 	for {
 		data, err := reader.ReadBytes('\n')
 		if err != nil {
@@ -386,6 +444,25 @@ func replayLog() (map[string]string, error) {
 			return store, fmt.Errorf("failed to unmarshal log entry: %w", err)
 		}
 
+		crc32.Reset()
+		_, err = crc32.Write([]byte(fmt.Sprintf(
+			"%s,%s,%s",
+			entry.Op,
+			entry.Key,
+			entry.Value,
+		)))
+		if err != nil {
+			return store, fmt.Errorf("CRc32 check failed: %w", err)
+		}
+
+		hash := crc32.Sum32()
+		if entry.CRC32 != hash {
+			return store, fmt.Errorf(
+				"CRC32 check failed: expected %d, got %d",
+				hash,
+				entry.CRC32,
+			)
+		}
 		store[entry.Key] = entry.Value
 	}
 

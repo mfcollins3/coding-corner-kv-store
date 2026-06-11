@@ -103,15 +103,15 @@ func (m *memtable) Close() error {
 }
 
 func (m *memtable) Set(key, value string) error {
-	crc32 := crc32.NewIEEE()
-	_, err := crc32.Write([]byte(fmt.Sprintf("put,%s,%s", key, value)))
+	hash := crc32.NewIEEE()
+	_, err := hash.Write([]byte(fmt.Sprintf("put,%s,%s", key, value)))
 	if err != nil {
 		return fmt.Errorf("failed to calculate CRC32: %w", err)
 	}
 
 	logEntry := logEntry{
 		Op:    "put",
-		CRC32: crc32.Sum32(),
+		CRC32: hash.Sum32(),
 		Key:   key,
 		Value: value,
 	}
@@ -416,7 +416,7 @@ func replayLog() (map[string]string, error) {
 	}()
 
 	reader := bufio.NewReader(file)
-	crc32 := crc32.NewIEEE()
+	hash := crc32.NewIEEE()
 	for {
 		data, err := reader.ReadBytes('\n')
 		if err != nil {
@@ -432,8 +432,8 @@ func replayLog() (map[string]string, error) {
 			return store, fmt.Errorf("failed to unmarshal log entry: %w", err)
 		}
 
-		crc32.Reset()
-		_, err = crc32.Write([]byte(fmt.Sprintf(
+		hash.Reset()
+		_, err = hash.Write([]byte(fmt.Sprintf(
 			"%s,%s,%s",
 			entry.Op,
 			entry.Key,
@@ -443,7 +443,7 @@ func replayLog() (map[string]string, error) {
 			return store, fmt.Errorf("CRc32 check failed: %w", err)
 		}
 
-		hash := crc32.Sum32()
+		hash := hash.Sum32()
 		if entry.CRC32 != hash {
 			return store, fmt.Errorf(
 				"CRC32 check failed: expected %d, got %d",

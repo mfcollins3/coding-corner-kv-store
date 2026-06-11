@@ -18,6 +18,7 @@ I approached and implemented each chapter of the article series.
 
 1. [Week 1: In-Memory Store](#in-memory-store)
 1. [Week 2: LSM Tree Foundations](v2/README.md)
+1. [Week 3: Durability with Write-Ahead Logging](v3/README.md)
 
 ## In-Memory Store
 

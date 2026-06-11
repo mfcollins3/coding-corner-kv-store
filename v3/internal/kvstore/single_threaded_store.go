@@ -27,6 +27,10 @@ type singleThreadedStore struct {
 	store Store
 }
 
+func (s *singleThreadedStore) Close() error {
+	return s.store.Close()
+}
+
 func (s *singleThreadedStore) Get(key string) (string, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

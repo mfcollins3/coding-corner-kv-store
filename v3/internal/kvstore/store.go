@@ -20,9 +20,13 @@
 
 package kvstore
 
+import "io"
+
 // Store is an interface for a key-value store. It defines the operations for
 // writing values to or reading values from the store.
 type Store interface {
+	io.Closer
+
 	// Get reads a value from the key-value store given the unique key that the
 	// value is associated with. On success, the value associated with the key
 	// is returned.

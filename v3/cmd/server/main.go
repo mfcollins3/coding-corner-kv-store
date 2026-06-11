@@ -73,6 +73,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	defer func() {
+		_ = store.Close()
+	}()
+
 	addr := getListenAddress()
 	srv := &http.Server{
 		Addr: addr,

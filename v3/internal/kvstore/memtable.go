@@ -32,6 +32,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 const maxTableSize = 2000
@@ -65,11 +66,15 @@ func newMemtable() (*memtable, error) {
 
 	wal, err := os.OpenFile(
 		"wal.log",
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND|syscall.O_DSYNC,
 		0644,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open WAL file: %w", err)
+	}
+
+	if err := syncDirectory(); err != nil {
+		return nil, err
 	}
 
 	encoder := json.NewEncoder(wal)
@@ -93,6 +98,10 @@ func newMemtable() (*memtable, error) {
 	return mt, nil
 }
 
+func (m *memtable) Close() error {
+	return m.wal.Close()
+}
+
 func (m *memtable) Set(key, value string) error {
 	crc32 := crc32.NewIEEE()
 	_, err := crc32.Write([]byte(fmt.Sprintf("put,%s,%s", key, value)))
@@ -108,10 +117,6 @@ func (m *memtable) Set(key, value string) error {
 	}
 	if err := m.encoder.Encode(logEntry); err != nil {
 		return fmt.Errorf("failed to write log entry: %w", err)
-	}
-
-	if err := m.wal.Sync(); err != nil {
-		return fmt.Errorf("failed to sync WAL file: %w", err)
 	}
 
 	m.data[key] = value
@@ -181,16 +186,8 @@ func clearDanglingSSTables(ssTables []string) error {
 	}
 
 	if removedAny {
-		dir, err := os.Open(".")
-		if err != nil {
-			return fmt.Errorf("unable to open current directory for sync: %w", err)
-		}
-		defer func() {
-			_ = dir.Close()
-		}()
-
-		if err := dir.Sync(); err != nil {
-			return fmt.Errorf("unable to sync current directory: %w", err)
+		if err := syncDirectory(); err != nil {
+			return err
 		}
 	}
 
@@ -365,15 +362,6 @@ func (m *memtable) writeManifest() error {
 		return fmt.Errorf("error getting current working directory: %w", err)
 	}
 
-	dir, err := os.Open(wd)
-	if err != nil {
-		return fmt.Errorf("error opening directory %s: %w", wd, err)
-	}
-
-	defer func() {
-		_ = dir.Close()
-	}()
-
 	manifest, err := os.OpenFile(
 		"MANIFEST.tmp",
 		os.O_TRUNC|os.O_CREATE|os.O_WRONLY,
@@ -401,7 +389,7 @@ func (m *memtable) writeManifest() error {
 		return fmt.Errorf("error renaming MANIFEST file: %w", err)
 	}
 
-	if err := dir.Sync(); err != nil {
+	if err := syncDirectory(); err != nil {
 		return fmt.Errorf("error syncing directory %s: %w", wd, err)
 	}
 
@@ -467,4 +455,21 @@ func replayLog() (map[string]string, error) {
 	}
 
 	return store, nil
+}
+
+func syncDirectory() error {
+	dir, err := os.Open(".")
+	if err != nil {
+		return fmt.Errorf("failed to open WAL directory: %w", err)
+	}
+
+	defer func() {
+		_ = dir.Close()
+	}()
+
+	if err := dir.Sync(); nil != err {
+		return fmt.Errorf("failed to sync WAL directory: %w", err)
+	}
+
+	return nil
 }

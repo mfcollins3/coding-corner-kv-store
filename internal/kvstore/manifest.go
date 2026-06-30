@@ -1,3 +1,23 @@
+// Copyright 2026 Michael F. Collins, III
+//
+// Permission is hereby granted, free of charge, to any person obtaining a
+// copy of this software and associated documentation files (the "Software"),
+// to deal in the Software without restriction, including without limitation
+// the rights to use, copy, modify, merge, publish, distribute, sublicense,
+// and/or sell copies of the Software, and to permit persons to whom the
+// Software is furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included
+// in all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISONG
+// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+// DEALINGS IN THE SOFTWARE.
+
 package kvstore
 
 import (
@@ -37,7 +57,7 @@ func newManifest(filename string) (*manifest, error) {
 }
 
 func openManifest(filename string) (*manifest, error) {
-	file, err := os.Open(filename)
+	file, err := openRead(filename)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open manifest file: %w", err)
 	}
@@ -46,7 +66,7 @@ func openManifest(filename string) (*manifest, error) {
 		_ = file.Close()
 	}()
 
-	sstables, nextSSTableID, err := getNextSSTableID(file)
+	sstables, nextSSTableID, err := parseManifest(file)
 	if err != nil {
 		return nil, err
 	}
@@ -58,30 +78,27 @@ func openManifest(filename string) (*manifest, error) {
 	}, nil
 }
 
-func getNextSSTableID(r io.Reader) ([]string, int, error) {
+func parseManifest(r io.Reader) ([]string, int, error) {
 	maxID := 0
 	sstables := []string{}
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "sst-") &&
-			strings.HasSuffix(line, ".json") {
-			sstables = append(sstables, line)
-			idStr := strings.TrimSuffix(
-				strings.TrimPrefix(line, "sst-"),
-				".json",
+		sstables = append(sstables, line)
+		idStr := strings.TrimSuffix(
+			strings.TrimPrefix(line, "sst-"),
+			".json",
+		)
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			return []string{}, 0, fmt.Errorf(
+				"unable to parse sst id from %q: %w",
+				line,
+				err,
 			)
-			id, err := strconv.Atoi(idStr)
-			if err != nil {
-				return []string{}, 0, fmt.Errorf(
-					"unable to parse sst id from %q: %w",
-					line,
-					err,
-				)
-			}
-
-			maxID = max(maxID, id)
 		}
+
+		maxID = max(maxID, id)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -99,7 +116,7 @@ func (m *manifest) nextSSTableFilename() string {
 }
 
 func (m *manifest) addSSTable(filename string) error {
-	f, err := os.OpenFile(
+	f, err := openFile(
 		m.filename,
 		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
 		0644,

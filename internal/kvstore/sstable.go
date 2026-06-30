@@ -48,7 +48,7 @@ func newSSTable(mt memtable) sstable {
 }
 
 func openSSTable(filename string) (sstable, error) {
-	f, err := os.Open(filename)
+	f, err := openRead(filename)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open sstable %q: %w", filename, err)
 	}
@@ -70,7 +70,7 @@ func openSSTable(filename string) (sstable, error) {
 }
 
 func (s sstable) Save(filename string) error {
-	f, err := os.OpenFile(filename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	f, err := openFile(filename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf(
 			"unable to create sstable file at %s: %w",

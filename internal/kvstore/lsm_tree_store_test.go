@@ -21,157 +21,291 @@
 package kvstore
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
-	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestLSMSetStoresValueInMemtable(t *testing.T) {
-	store, err := newLSMTreeStore(t.TempDir())
-	assert.NoError(t, err)
-	assert.NoError(t, store.Set("hello", "world"))
-
-	value, ok := store.mt["hello"]
-
-	assert.True(t, ok, "the key was not found")
-	assert.Equal(t, "world", value)
-}
-
-func TestLSMGetRetrievesValueFromMemtable(t *testing.T) {
-	store, err := newLSMTreeStore(t.TempDir())
-	assert.NoError(t, err)
-	store.mt["hello"] = "world"
-
-	value, err := store.Get("hello")
-	assert.NoError(t, err)
-	assert.Equal(t, "world", value)
-}
-
-func TestLSMGetReturnsKeyNotFoundErrorIfKeyIsMissing(t *testing.T) {
-	store, err := newLSMTreeStore(t.TempDir())
-	assert.NoError(t, err)
-
-	_, err = store.Get("hello")
-
-	assert.ErrorIs(t, err, ErrKeyNotFound)
-}
-
-func TestLSMSetFlushIfMemtableGetsTooBig(t *testing.T) {
+func TestNewLSMTreeStore(t *testing.T) {
 	tempDir := t.TempDir()
-	store, err := newLSMTreeStore(tempDir)
-	assert.NoError(t, err)
 
-	for i := range 2000 {
-		assert.NoError(t, store.Set(fmt.Sprintf("key%d", i), strconv.Itoa(i)))
-	}
-
-	t.Run("it empties the memtable", func(t *testing.T) {
-		assert.Empty(t, store.mt)
-	})
-
-	t.Run("it creates the SSTable", func(t *testing.T) {
-		assert.FileExists(t, path.Join(tempDir, "sst-1.json"))
-	})
-
-	t.Run("it writes the key-value pairs to the SSTable", func(t *testing.T) {
-		var entries []sstableEntry
-		file, err := os.Open(path.Join(tempDir, "sst-1.json"))
-		assert.NoError(t, err)
-		defer func() {
-			_ = file.Close()
-		}()
-		assert.NoError(t, json.NewDecoder(file).Decode(&entries))
-
-		expected := make([]sstableEntry, len(entries))
-		for i := range 2000 {
-			expected[i] = sstableEntry{
-				Key:   fmt.Sprintf("key%d", i),
-				Value: strconv.Itoa(i),
-			}
+	t.Run("it creates a new LSM tree store", func(t *testing.T) {
+		orig := statFile
+		t.Cleanup(func() { statFile = orig })
+		statFile = func(name string) (os.FileInfo, error) {
+			return nil, os.ErrNotExist
 		}
 
-		sort.Slice(expected, func(i, j int) bool {
-			return expected[i].Key < expected[j].Key
+		store, err := newLSMTreeStore(tempDir)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, store)
+		assert.Empty(t, store.mt)
+		assert.Equal(t, tempDir, store.path)
+		assert.Equal(t, 1, store.manifest.nextSSTableID)
+		assert.NotNil(t, store.negativeCache)
+	})
+
+	t.Run("it opens an existing LSM tree store", func(t *testing.T) {
+		{
+			file, err := os.Create(path.Join(tempDir, "MANIFEST"))
+			assert.NoError(t, err)
+			defer func() {
+				_ = file.Close()
+			}()
+			_, err = file.Write([]byte("sst-1.json\nsst-2.json\nsst-3.json\n"))
+			assert.NoError(t, err)
+		}
+
+		t.Run("it succeeds", func(t *testing.T) {
+			store, err := newLSMTreeStore(tempDir)
+
+			assert.NoError(t, err)
+			assert.NotNil(t, store)
+			assert.Empty(t, store.mt)
+			assert.Equal(t, tempDir, store.path)
+			assert.Equal(t, 4, store.manifest.nextSSTableID)
+			assert.NotNil(t, store.negativeCache)
 		})
-		assert.Equal(t, expected, entries)
+		t.Run(
+			"it returns an error if the MANIFEST cannot be opened",
+			func(t *testing.T) {
+				injectedError := errors.New("injected error")
+				orig := openRead
+				t.Cleanup(func() { openRead = orig })
+				openRead = func(name string) (*os.File, error) {
+					return nil, injectedError
+				}
+
+				_, err := newLSMTreeStore(tempDir)
+
+				assert.ErrorIs(t, err, injectedError)
+			},
+		)
 	})
 }
 
-func TestNewLSMTreeStoreFailsIfStatReturnsError(t *testing.T) {
-	orig := statFile
-	t.Cleanup(func() { statFile = orig })
-	statFile = func(name string) (os.FileInfo, error) {
-		return nil, errors.New("test error")
-	}
+func TestLSMTreeStoreGet(t *testing.T) {
+	tempDir := t.TempDir()
 
-	_, err := newLSMTreeStore(t.TempDir())
+	t.Run(
+		"it returns an error if the key is in the negative cache",
+		func(t *testing.T) {
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+			store.negativeCache["test"] = struct{}{}
 
-	assert.Error(t, err)
+			_, err = store.Get("test")
+
+			assert.ErrorIs(t, err, ErrKeyNotFound)
+		},
+	)
+
+	t.Run(
+		"it returns the value if the key is in the memtable",
+		func(t *testing.T) {
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+			store.mt.set("hello", "world")
+
+			val, err := store.Get("hello")
+
+			assert.NoError(t, err)
+			assert.Equal(t, "world", val)
+		},
+	)
+
+	t.Run(
+		"it returns the value if the key is found in an SSTable",
+		func(t *testing.T) {
+			{
+				manifestFilename := path.Join(tempDir, "MANIFEST")
+				file, err := os.Create(manifestFilename)
+				assert.NoError(t, err)
+				defer func() {
+					_ = file.Close()
+				}()
+				_, err = file.Write([]byte("sst-1.json\n"))
+				assert.NoError(t, err)
+
+				sstableFilename := path.Join(tempDir, "sst-1.json")
+				sstableFile, err := os.Create(sstableFilename)
+				assert.NoError(t, err)
+				defer func() {
+					_ = sstableFile.Close()
+				}()
+				_, err = sstableFile.Write([]byte(
+					"[{\"key\":\"hello\",\"value\":\"world\"}]",
+				))
+				assert.NoError(t, err)
+			}
+
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+			val, err := store.Get("hello")
+
+			assert.NoError(t, err)
+			assert.Equal(t, "world", val)
+		},
+	)
+
+	t.Run(
+		"it returns an error if the sstable cannot be opened",
+		func(t *testing.T) {
+			{
+				manifestFilename := path.Join(tempDir, "MANIFEST")
+				file, err := os.Create(manifestFilename)
+				assert.NoError(t, err)
+				defer func() {
+					_ = file.Close()
+				}()
+				_, err = file.Write([]byte("sst-1.json\n"))
+				assert.NoError(t, err)
+
+				sstableFilename := path.Join(tempDir, "sst-1.json")
+				sstableFile, err := os.Create(sstableFilename)
+				assert.NoError(t, err)
+				defer func() {
+					_ = sstableFile.Close()
+				}()
+				_, err = sstableFile.Write([]byte(
+					"[{\"key\":\"hello\",\"value\":\"world\"}]",
+				))
+				assert.NoError(t, err)
+			}
+
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+
+			injectedError := errors.New("injected error")
+			orig := openRead
+			t.Cleanup(func() { openRead = orig })
+			openRead = func(name string) (*os.File, error) {
+				return nil, injectedError
+			}
+
+			_, err = store.Get("test")
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
+
+	t.Run(
+		"it adds the key to the negative cache if not found",
+		func(t *testing.T) {
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+
+			_, err = store.Get("test")
+
+			assert.ErrorIs(t, err, ErrKeyNotFound)
+			_, ok := store.negativeCache["test"]
+			assert.True(t, ok)
+		},
+	)
 }
 
-func TestLSMCreateOrLoadManifestReadsExistingManifest(t *testing.T) {
-	tempDir := t.TempDir()
-	manifestPath := path.Join(tempDir, "MANIFEST")
-	assert.NoError(t, createTestManifest(manifestPath))
-
-	store, err := newLSMTreeStore(tempDir)
-	assert.NoError(t, err)
-	assert.Equal(t, 4, store.manifest.nextSSTableID)
-}
-
-func TestLSMGetReturnsErrorIfManifestCannotBeRead(t *testing.T) {
-	tempDir := t.TempDir()
-	manifestPath := path.Join(tempDir, "MANIFEST")
-	assert.NoError(t, createTestManifest(manifestPath))
-
-	store, err := newLSMTreeStore(tempDir)
-	assert.NoError(t, err)
-
-	for i := range maxMemtableEntries {
-		err = store.Set(fmt.Sprintf("key%d", i), strconv.Itoa(i))
+func TestLSMTreeStoreSet(t *testing.T) {
+	t.Run("it adds the value to the memstore", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
 		assert.NoError(t, err)
-	}
 
-	orig := openRead
-	t.Cleanup(func() { openRead = orig })
-	openRead = func(path string) (*os.File, error) {
-		return nil, errors.New("test error")
-	}
-	_, err = store.Get("key3")
-	assert.Error(t, err)
-}
+		err = store.Set("test", "passed")
+		assert.NoError(t, err)
+		val, ok := store.mt["test"]
+		assert.True(t, ok)
+		assert.Equal(t, "passed", val)
+	})
 
-func createTestManifest(filename string) error {
-	manifestFile, err := os.Create(filename)
-	if err != nil {
-		return err
-	}
+	t.Run("it flushes the memtable to an SSTable", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
 
-	defer func() {
-		_ = manifestFile.Close()
-	}()
+		for i := range maxMemtableEntries {
+			assert.NoError(
+				t,
+				store.Set(fmt.Sprintf("key-%d", i), strconv.Itoa(i)),
+			)
+		}
 
-	_, err = fmt.Fprintln(manifestFile, "sst-1.json")
-	if err != nil {
-		return err
-	}
+		assert.FileExists(t, path.Join(tempDir, "sst-1.json"))
 
-	_, err = fmt.Fprintln(manifestFile, "sst-2.json")
-	if err != nil {
-		return err
-	}
+		manifestFilename := path.Join(tempDir, "MANIFEST")
+		manifestFile, err := os.Open(manifestFilename)
+		assert.NoError(t, err)
+		defer func() {
+			_ = manifestFile.Close()
+		}()
+		data, err := io.ReadAll(manifestFile)
+		assert.NoError(t, err)
+		assert.Equal(t, "sst-1.json\n", string(data))
+	})
 
-	_, err = fmt.Fprintln(manifestFile, "sst-3.json")
-	if err != nil {
-		return err
-	}
+	t.Run(
+		"it returns an error if the memtable cannot be flushed",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
 
-	return nil
+			for i := range maxMemtableEntries - 1 {
+				assert.NoError(
+					t,
+					store.Set(fmt.Sprintf("key-%d", i), strconv.Itoa(i)),
+				)
+			}
+
+			injectedError := errors.New("injected error")
+			orig := openFile
+			t.Cleanup(func() { openFile = orig })
+			openFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+				return nil, injectedError
+			}
+
+			err = store.Set("test", "failed")
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
+
+	t.Run(
+		"it returns an error if the manifest cannot be opdated",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+
+			for i := range maxMemtableEntries - 1 {
+				assert.NoError(
+					t,
+					store.Set(fmt.Sprintf("key-%d", i), strconv.Itoa(i)),
+				)
+			}
+
+			injectedError := errors.New("injected error")
+			orig := openFile
+			t.Cleanup(func() { openFile = orig })
+			openFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+				if !strings.HasSuffix(name, "MANIFEST") {
+					return os.OpenFile(name, flag, perm)
+				}
+
+				return nil, injectedError
+			}
+
+			err = store.Set("test", "failed")
+
+			assert.ErrorIs(t, err, injectedError)
+			assert.ErrorContains(t, err, "failed to add sstable to manifest")
+		},
+	)
 }

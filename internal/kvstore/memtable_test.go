@@ -26,41 +26,58 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSetInsertsKeyValuePairIntoStore(t *testing.T) {
-	store := newMemtable()
+func TestMemtableSet(t *testing.T) {
+	t.Run("it inserts a key-value pair into the store", func(t *testing.T) {
+		mt := newMemtable()
 
-	store.set("hello", "world")
+		mt.set("hello", "world")
 
-	value, ok := store["hello"]
-	assert.True(t, ok, "the key was not found")
-	assert.Equal(t, "world", value, "the value was not expected")
+		value, ok := mt["hello"]
+		assert.True(t, ok, "the key was not found")
+		assert.Equal(t, "world", value, "the value was not expected")
+	})
+
+	t.Run("it updates a key-value pair", func(t *testing.T) {
+		mt := newMemtable()
+
+		mt.set("foo", "bar")
+		mt.set("foo", "baz")
+
+		value, ok := mt["foo"]
+		assert.True(t, ok, "the key was not found")
+		assert.Equal(t, "baz", value, "the value was not expected")
+	})
 }
 
-func TestSetUpdatesValueInStore(t *testing.T) {
-	store := newMemtable()
+func TestMemtableGet(t *testing.T) {
+	t.Run("it returns a value from the store", func(t *testing.T) {
+		mt := newMemtable()
+		mt.set("hello", "world")
 
-	store.set("foo", "bar")
-	store.set("foo", "baz")
+		value, ok := mt.get("hello")
 
-	value, ok := store["foo"]
-	assert.True(t, ok, "the key was not found")
-	assert.Equal(t, "baz", value, "the value was not expected")
+		assert.True(t, ok, "the key was not found")
+		assert.Equal(t, "world", value, "the value was not expected")
+	})
+
+	t.Run("it returns false if the key is not found", func(t *testing.T) {
+		mt := newMemtable()
+
+		_, ok := mt.get("hello")
+
+		assert.False(t, ok, "the key was found")
+	})
 }
 
-func TestGetReturnsValueFromStore(t *testing.T) {
-	store := newMemtable()
-	store.set("hello", "world")
+func TestMemtableClear(t *testing.T) {
+	t.Run("it clears all the entries in the store", func(t *testing.T) {
+		mt := newMemtable()
+		mt.set("a", "b")
+		mt.set("c", "d")
+		mt.set("e", "f")
 
-	value, ok := store.get("hello")
+		mt.clear()
 
-	assert.True(t, ok, "the key was not found")
-	assert.Equal(t, "world", value, "the value was not expected")
-}
-
-func TestGetReturnsFalseIfKeyIsNotFound(t *testing.T) {
-	store := newMemtable()
-
-	_, ok := store.get("hello")
-
-	assert.False(t, ok, "the key was found")
+		assert.Empty(t, mt)
+	})
 }

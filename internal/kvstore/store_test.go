@@ -6,7 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewStoreReturnsInMemoryStore(t *testing.T) {
-	store := NewStore()
-	assert.IsType(t, inMemoryStore{}, store)
+func TestNewStoreReturnsLSMTreeStore(t *testing.T) {
+	store, err := newLSMTreeStore(t.TempDir())
+	assert.NoError(t, err)
+	assert.IsType(t, &lsmTreeStore{}, store)
 }

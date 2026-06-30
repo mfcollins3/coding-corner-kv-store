@@ -20,15 +20,25 @@
 
 package kvstore
 
-import "errors"
+type memtable map[string]string
 
-var ErrKeyNotFound = errors.New("key not found")
-
-type Store interface {
-	Get(key string) (string, error)
-	Set(key, value string) error
+func newMemtable() memtable {
+	return memtable{}
 }
 
-func NewStore(path string) (Store, error) {
-	return newLSMTreeStore(path)
+func (s memtable) get(key string) (value string, ok bool) {
+	value, ok = s[key]
+	return
+}
+
+func (s memtable) set(key, value string) {
+	s[key] = value
+}
+
+func (s memtable) len() int {
+	return len(s)
+}
+
+func (s memtable) clear() {
+	clear(s)
 }

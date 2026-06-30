@@ -94,7 +94,14 @@ func SetValue(store kvstore.Store) http.Handler {
 			return
 		}
 
-		store.Set(key, string(value))
+		if err := store.Set(key, string(value)); err != nil {
+			http.Error(
+				w,
+				http.StatusText(http.StatusInternalServerError),
+				http.StatusInternalServerError,
+			)
+			return
+		}
 
 		w.WriteHeader(http.StatusCreated)
 	})

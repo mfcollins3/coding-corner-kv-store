@@ -21,6 +21,7 @@
 package api
 
 import (
+	"errors"
 	"mime"
 	"net/http"
 	"strings"
@@ -81,8 +82,8 @@ func GetValue(store kvstore.Store) http.Handler {
 		}
 
 		key := r.PathValue("key")
-		value, ok := store.Get(key)
-		if !ok {
+		value, err := store.Get(key)
+		if errors.Is(err, kvstore.ErrKeyNotFound) {
 			http.NotFound(w, r)
 			return
 		}

@@ -20,17 +20,7 @@
 
 package kvstore
 
-type inMemoryStore map[string]string
-
-func newInMemoryStore() inMemoryStore {
-	return inMemoryStore{}
-}
-
-func (s inMemoryStore) Get(key string) (value string, ok bool) {
-	value, ok = s[key]
-	return
-}
-
-func (s inMemoryStore) Set(key, value string) {
-	s[key] = value
+type sstableEntry struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }

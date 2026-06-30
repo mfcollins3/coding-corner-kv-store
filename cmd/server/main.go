@@ -55,15 +55,8 @@ func main() {
 		})
 	}
 
-	mu := sync.RWMutex{}
-	read := func(h http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			mu.RLock()
-			h.ServeHTTP(w, r)
-			mu.RUnlock()
-		})
-	}
-	write := func(h http.Handler) http.Handler {
+	mu := sync.Mutex{}
+	singleThreaded := func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			mu.Lock()
 			h.ServeHTTP(w, r)
@@ -71,11 +64,18 @@ func main() {
 		})
 	}
 
-	store := kvstore.NewStore()
+	store, err := kvstore.NewStore(".")
+	if err != nil {
+		log.Fatalf("unable to create the store: %v", err)
+	}
+
+	kvMux := http.NewServeMux()
+	kvMux.Handle("GET /{key}", api.GetValue(store))
+	kvMux.Handle("PUT /{key}", api.SetValue(store))
+
 	mux := http.NewServeMux()
 	mux.Handle("GET /metrics", api.GetMetrics(histogram))
-	mux.Handle("GET /kv/{key}", latency(read(api.GetValue(store))))
-	mux.Handle("PUT /kv/{key}", latency(write(api.SetValue(store))))
+	mux.Handle("/kv/", http.StripPrefix("/kv", latency(singleThreaded(kvMux))))
 
 	srv := &http.Server{
 		Addr: ":8080",

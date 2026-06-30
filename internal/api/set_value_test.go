@@ -34,7 +34,7 @@ import (
 
 func TestSetValue(t *testing.T) {
 	store := new(mockStore)
-	store.On("Set", "hello", "world").Return()
+	store.On("Set", "hello", "world").Return(nil)
 
 	handler := api.SetValue(store)
 
@@ -143,7 +143,7 @@ func TestSetValueReturnsBadRequestIfContentTypeIsUnparseable(t *testing.T) {
 
 func TestSetValueSucceedsIfCharsetNotSpecified(t *testing.T) {
 	store := new(mockStore)
-	store.On("Set", "hello", "world").Return()
+	store.On("Set", "hello", "world").Return(nil)
 
 	handler := api.SetValue(store)
 	recorder := httptest.NewRecorder()
@@ -179,6 +179,30 @@ func TestSetValueFailsIfBodyCannotBeRead(t *testing.T) {
 		http.MethodPut,
 		"/kv/hello",
 		reader,
+	)
+	request.SetPathValue("key", "hello")
+	request.Header.Set("Content-Type", "text/plain")
+	handler.ServeHTTP(recorder, request)
+
+	assert.Equal(
+		t,
+		http.StatusInternalServerError,
+		recorder.Code,
+		"returned http status should be internal server error",
+	)
+}
+
+func TestSetValueFailsIfStoreReturnsAnError(t *testing.T) {
+	store := new(mockStore)
+	store.On("Set", "hello", "world").
+		Return(fmt.Errorf("error"))
+
+	handler := api.SetValue(store)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/kv/hello",
+		strings.NewReader("world"),
 	)
 	request.SetPathValue("key", "hello")
 	request.Header.Set("Content-Type", "text/plain")

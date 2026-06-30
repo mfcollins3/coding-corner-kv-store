@@ -28,11 +28,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"go.michaelfcollins3.dev/kvstore/internal/api"
+	"go.michaelfcollins3.dev/kvstore/internal/kvstore"
 )
 
 func TestGetValueSucceeds(t *testing.T) {
 	store := new(mockStore)
-	store.On("Get", "hello").Return("world", true)
+	store.On("Get", "hello").Return("world", nil)
 
 	handler := api.GetValue(store)
 	recorder := httptest.NewRecorder()
@@ -70,7 +71,7 @@ func TestGetValueSucceeds(t *testing.T) {
 
 func TestGetValueSucceedsIfNoAcceptHeaderIsPresent(t *testing.T) {
 	store := new(mockStore)
-	store.On("Get", "hello").Return("world", true)
+	store.On("Get", "hello").Return("world", nil)
 
 	handler := api.GetValue(store)
 	recorder := httptest.NewRecorder()
@@ -95,7 +96,7 @@ func TestGetValueFailsIfAcceptHeaderIsNotSupported(t *testing.T) {
 
 func TestGetValueSucceedsIfNoCharsetIsSet(t *testing.T) {
 	store := new(mockStore)
-	store.On("Get", "hello").Return("world", true)
+	store.On("Get", "hello").Return("world", nil)
 
 	handler := api.GetValue(store)
 	recorder := httptest.NewRecorder()
@@ -133,7 +134,7 @@ func TestGetValueFailsIfCharsetIsNotUTF8(t *testing.T) {
 
 func TestGetValueFailsIfKeyIsNotFound(t *testing.T) {
 	store := new(mockStore)
-	store.On("Get", "hello").Return("", false)
+	store.On("Get", "hello").Return("", kvstore.ErrKeyNotFound)
 
 	handler := api.GetValue(store)
 	recorder := httptest.NewRecorder()
@@ -147,7 +148,7 @@ func TestGetValueFailsIfKeyIsNotFound(t *testing.T) {
 
 func TestGetValueSucceedsIfAcceptHasAnyContentType(t *testing.T) {
 	store := new(mockStore)
-	store.On("Get", "hello").Return("world", true)
+	store.On("Get", "hello").Return("world", nil)
 
 	handler := api.GetValue(store)
 	recorder := httptest.NewRecorder()

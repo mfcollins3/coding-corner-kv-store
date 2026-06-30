@@ -27,9 +27,9 @@ import (
 )
 
 func TestSetInsertsKeyValuePairIntoStore(t *testing.T) {
-	store := newInMemoryStore()
+	store := newMemtable()
 
-	store.Set("hello", "world")
+	store.set("hello", "world")
 
 	value, ok := store["hello"]
 	assert.True(t, ok, "the key was not found")
@@ -37,10 +37,10 @@ func TestSetInsertsKeyValuePairIntoStore(t *testing.T) {
 }
 
 func TestSetUpdatesValueInStore(t *testing.T) {
-	store := newInMemoryStore()
+	store := newMemtable()
 
-	store.Set("foo", "bar")
-	store.Set("foo", "baz")
+	store.set("foo", "bar")
+	store.set("foo", "baz")
 
 	value, ok := store["foo"]
 	assert.True(t, ok, "the key was not found")
@@ -48,19 +48,19 @@ func TestSetUpdatesValueInStore(t *testing.T) {
 }
 
 func TestGetReturnsValueFromStore(t *testing.T) {
-	store := newInMemoryStore()
-	store.Set("hello", "world")
+	store := newMemtable()
+	store.set("hello", "world")
 
-	value, ok := store.Get("hello")
+	value, ok := store.get("hello")
 
 	assert.True(t, ok, "the key was not found")
 	assert.Equal(t, "world", value, "the value was not expected")
 }
 
 func TestGetReturnsFalseIfKeyIsNotFound(t *testing.T) {
-	store := newInMemoryStore()
+	store := newMemtable()
 
-	_, ok := store.Get("hello")
+	_, ok := store.get("hello")
 
 	assert.False(t, ok, "the key was found")
 }

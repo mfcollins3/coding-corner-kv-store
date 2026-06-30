@@ -26,11 +26,12 @@ type mockStore struct {
 	mock.Mock
 }
 
-func (s *mockStore) Get(key string) (string, bool) {
+func (s *mockStore) Get(key string) (string, error) {
 	args := s.Called(key)
-	return args.String(0), args.Bool(1)
+	return args.String(0), args.Error(1)
 }
 
-func (s *mockStore) Set(key, value string) {
-	s.Called(key, value)
+func (s *mockStore) Set(key, value string) error {
+	args := s.Called(key, value)
+	return args.Error(0)
 }

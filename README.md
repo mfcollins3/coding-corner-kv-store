@@ -2,6 +2,11 @@
 
 ![Key-Value Storage Engine Poster](assets/poster.svg)
 
+## Versions
+
+1. [Week 1: In-Memory Store](https://github.com/mfcollins3/coding-corner-kv-store/tree/week-1)
+2. [Week 2: LSM Tree Foundations](https://github.com/mfcollins3/coding-corner-kv-store/tree/week-2)
+
 ## Table of Contents
 
 1. [About](#about)
@@ -34,11 +39,12 @@ additional requirements on the HTTP APIs.
 
 ## Features
 
-| Feature | Description                                                                                                                    |
-| --- |--------------------------------------------------------------------------------------------------------------------------------|
-| In-Memory Storage | The engine stores key-value pairs in memory for fast access.                                                                   |
-| Concurrency | The engine protects against dirty reads and writes by using a read-write mutex to allow concurrent reads and exclusive writes. |
-| Metrics | The engine exposes P50, P95, and P99 latency metrics for key-value storage engine requests via the `/metrics` endpoint.        |
+| Feature                     | Description                                                                                                                                                                           |
+|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Efficient Memory Management | The engine stores key-value pairs in memory for fast access. When the in-memory store grows to a specific size, the key-value pairs are written to a sorted-string table (SSTable) file on disk. |
+| Persistence                 | Key-value pairs are persisted to disk in a sorted-string table (SSTable) file. If the key is not found in memory, the SSTable files are searched in reverse order (newest to oldest) to find the key-value pair. |
+| Single Threaded             | The engine protects against dirty reads and writes by using a mutex to allow concurrent reads and exclusive writes.                                                                   |
+| Metrics                     | The engine exposes P50, P95, and P99 latency metrics for key-value storage engine requests via the `/metrics` endpoint.                                                               |
 
 ## Tech Stack
 
@@ -68,7 +74,11 @@ kvstore/
         get_value.go        # Implements the GET /kv/{key} endpoint that returns the value for a given key
         set_value.go        # Implements the POST /kv/{key} endpoint that sets the value for a given key
     |-- kvstore/            # Contains the implementation of the key-value storage engine
-        in_memory_store.go  # Implements the in-memory key-value storage engine
+        api_injectors.go    # Implements variables that reference standard library functions that need to be replaced for testing purposes (e.g., os.OpenFile can be replaced to simulate errors for testing)
+        lsm_tree_store.go   # Implements the LSM tree key-value storage engine
+        manifest.go         # Reads and writes the MANIFEST file that contains the list of SSTable files
+        memtable.go         # Implements the in-memory key-value store
+        sstable.go          # Implements the sorted-string table (SSTable) file format for persisting key-value pairs to disk or searching an SSTable file for a key-value pair
         store.go            # Defines the interface for the key-value storage engine
     |-- metrics/            # Contains the implementation of the latency metrics for the key-value storage engine
         histogram.go        # Implements a histogram to track latency metrics for the key-value storage engine
@@ -181,10 +191,13 @@ your own key-value storage engine.
 
 ## What's Next
 
-The current implementation of the key-value storage engine is the in-memory
-store version. The following features are coming soon:
+The current implementation of the key-value storage engine implements an 
+[LSM Tree](https://read.thecoder.cafe/p/lsm-trees) for managing the key-value 
+pairs. A small subset of recent updates are kept in memory. When the in-memory 
+set grows too big, the key-value pairs are flushed and persisted to disk. If a 
+key can't be found in the in-memory store, then the SSTables are searched from 
+newest to oldest until the key is found. The following features are coming soon:
 
-- [ ] [LSM Tree](https://read.thecoder.cafe/p/build-your-own-kv-engine-2)
 - [ ] [Durability with Write-Ahead Logging](https://read.thecoder.cafe/p/build-your-own-kv-engine-3)
 - [ ] [Deletes, Tombstones, and Compaction](https://read.thecoder.cafe/p/build-your-own-kv-engine-4)
 - [ ] [Leveling and Key-Range Partitioning](https://read.thecoder.cafe/p/build-your-own-kv-engine-5)

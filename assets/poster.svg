@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" width="1600" height="900" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1060" width="1600" height="1060" role="img" aria-labelledby="title desc">
   <title id="title">Key-Value Storage Engine Poster</title>
-  <desc id="desc">A poster illustrating a key-value storage engine with client requests flowing through an HTTP API to an in-memory store, protected by a mutex and surfaced with latency metrics.</desc>
+  <desc id="desc">A poster illustrating a key-value storage engine built around an LSM tree, with client requests flowing through an HTTP API into a memtable, SSTables, and compaction.</desc>
   <defs>
     <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
       <stop offset="0%" stop-color="#0f172a"/>
@@ -9,6 +9,14 @@
     <linearGradient id="accent" x1="0" x2="1" y1="0" y2="1">
       <stop offset="0%" stop-color="#38bdf8"/>
       <stop offset="100%" stop-color="#22c55e"/>
+    </linearGradient>
+    <linearGradient id="level1" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="level2" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#020617"/>
     </linearGradient>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
       <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#020617" flood-opacity="0.45"/>
@@ -19,73 +27,114 @@
       .label { font: 700 30px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #e2e8f0; }
       .small { font: 500 22px Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #94a3b8; }
       .mono { font: 600 22px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; fill: #cbd5e1; }
+      .mono-small { font: 600 18px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; fill: #cbd5e1; }
     </style>
   </defs>
 
-  <rect width="1600" height="900" fill="url(#bg)"/>
+  <rect width="1600" height="1060" fill="url(#bg)"/>
   <circle cx="1320" cy="150" r="220" fill="#1d4ed8" opacity="0.18"/>
   <circle cx="260" cy="780" r="260" fill="#22c55e" opacity="0.12"/>
   <path d="M0 140 C220 90, 390 100, 560 150 S920 220, 1110 150 S1420 60, 1600 120" fill="none" stroke="#38bdf8" stroke-opacity="0.16" stroke-width="3"/>
   <path d="M0 760 C190 690, 420 700, 590 760 S950 840, 1160 760 S1420 650, 1600 710" fill="none" stroke="#22c55e" stroke-opacity="0.12" stroke-width="3"/>
 
   <text x="110" y="150" class="title">Key-Value Storage Engine</text>
-  <text x="110" y="202" class="subtitle">Fast reads, safe writes, and latency metrics — built from scratch in Go.</text>
+  <text x="110" y="202" class="subtitle">Fast reads, safe writes, and durable storage — powered by an LSM tree in Go.</text>
 
   <g filter="url(#shadow)">
-    <rect x="110" y="290" rx="28" ry="28" width="310" height="290" fill="#0b1220" stroke="#1e293b" stroke-width="2"/>
-    <rect x="460" y="250" rx="34" ry="34" width="420" height="370" fill="#0f172a" stroke="#334155" stroke-width="2"/>
-    <rect x="920" y="250" rx="34" ry="34" width="560" height="370" fill="#0b1220" stroke="#334155" stroke-width="2"/>
+    <rect x="110" y="290" rx="28" ry="28" width="300" height="290" fill="#0b1220" stroke="#1e293b" stroke-width="2"/>
+    <rect x="450" y="250" rx="34" ry="34" width="430" height="370" fill="#0f172a" stroke="#334155" stroke-width="2"/>
+    <rect x="920" y="250" rx="34" ry="34" width="560" height="560" fill="#0b1220" stroke="#334155" stroke-width="2"/>
   </g>
 
-  <text x="170" y="360" class="label">Client</text>
-  <text x="170" y="408" class="small">PUT /kv/hello</text>
-  <rect x="160" y="455" rx="18" ry="18" width="220" height="56" fill="#111827" stroke="#38bdf8" stroke-width="2"/>
-  <text x="270" y="491" text-anchor="middle" class="mono">hello → world</text>
-  <text x="170" y="545" class="small">curl, tests, custom tools</text>
+  <text x="165" y="360" class="label">Client</text>
+  <text x="165" y="408" class="small">PUT /kv/hello</text>
+  <rect x="155" y="455" rx="18" ry="18" width="210" height="56" fill="#111827" stroke="#38bdf8" stroke-width="2"/>
+  <text x="260" y="491" text-anchor="middle" class="mono">hello → world</text>
+  <text x="165" y="545" class="small">curl, tests, custom tools</text>
 
-  <text x="525" y="330" class="label">HTTP API</text>
-  <text x="525" y="378" class="small">Routes requests to the store and exposes metrics.</text>
-  <rect x="505" y="430" rx="20" ry="20" width="330" height="62" fill="#111827" stroke="#22c55e" stroke-width="2"/>
-  <text x="670" y="469" text-anchor="middle" class="mono">GET /kv/{key}</text>
-  <rect x="505" y="510" rx="20" ry="20" width="330" height="62" fill="#111827" stroke="#22c55e" stroke-width="2"/>
-  <text x="670" y="549" text-anchor="middle" class="mono">POST /kv/{key}</text>
+  <text x="515" y="330" class="label">HTTP API</text>
+  <text x="515" y="378" class="small">Routes requests into the storage</text>
+  <text x="515" y="406" class="small">engine and exposes metrics.</text>
+  <rect x="495" y="430" rx="20" ry="20" width="330" height="62" fill="#111827" stroke="#22c55e" stroke-width="2"/>
+  <text x="660" y="469" text-anchor="middle" class="mono">GET /kv/{key}</text>
+  <rect x="495" y="510" rx="20" ry="20" width="330" height="62" fill="#111827" stroke="#22c55e" stroke-width="2"/>
+  <text x="660" y="549" text-anchor="middle" class="mono">POST /kv/{key}</text>
 
-  <text x="985" y="330" class="label">Store Core</text>
-  <text x="985" y="378" class="small">In-memory data, concurrency control, and latency tracking.</text>
+  <text x="965" y="330" class="label">LSM Tree Core</text>
+  <text x="965" y="378" class="small">Recent writes land in memory, then flush to</text>
+  <text x="965" y="406" class="small">sorted SSTables on disk.</text>
 
-  <g transform="translate(980 430)">
-    <rect x="0" y="0" rx="24" ry="24" width="250" height="118" fill="#111827" stroke="#38bdf8" stroke-width="2"/>
-    <text x="125" y="42" text-anchor="middle" class="mono">In-Memory Map</text>
-    <text x="125" y="78" text-anchor="middle" class="small">fast key lookup</text>
+  <g transform="translate(965 410)">
+    <rect x="0" y="0" rx="24" ry="24" width="190" height="126" fill="#111827" stroke="#38bdf8" stroke-width="2"/>
+    <text x="95" y="38" text-anchor="middle" class="mono">Memtable</text>
+    <text x="95" y="72" text-anchor="middle" class="mono-small">hot writes</text>
+    <text x="95" y="96" text-anchor="middle" class="mono-small">sorted in</text>
+    <text x="95" y="116" text-anchor="middle" class="mono-small">memory</text>
   </g>
-  <g transform="translate(1260 430)">
-    <rect x="0" y="0" rx="24" ry="24" width="190" height="118" fill="#111827" stroke="#22c55e" stroke-width="2"/>
-    <text x="95" y="42" text-anchor="middle" class="mono">Mutex</text>
-    <text x="95" y="78" text-anchor="middle" class="small">safe writes</text>
+
+  <g transform="translate(1175 410)">
+    <rect x="0" y="0" rx="24" ry="24" width="120" height="126" fill="#111827" stroke="#22c55e" stroke-width="2"/>
+    <text x="60" y="38" text-anchor="middle" class="mono">WAL</text>
+    <text x="60" y="72" text-anchor="middle" class="mono-small">durable</text>
+    <text x="60" y="96" text-anchor="middle" class="mono-small">append</text>
+    <text x="60" y="116" text-anchor="middle" class="mono-small">log</text>
   </g>
 
-  <g transform="translate(980 580)">
-    <rect x="0" y="0" rx="24" ry="24" width="470" height="34" fill="url(#accent)" opacity="0.35"/>
-    <text x="0" y="-18" class="small">Latency metrics</text>
-    <path d="M20 24 L80 18 L120 22 L170 8 L230 20 L280 11 L340 16 L400 7 L450 13" fill="none" stroke="#38bdf8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="80" cy="18" r="6" fill="#38bdf8"/>
-    <circle cx="170" cy="8" r="6" fill="#38bdf8"/>
-    <circle cx="280" cy="11" r="6" fill="#38bdf8"/>
-    <circle cx="400" cy="7" r="6" fill="#38bdf8"/>
+  <g transform="translate(1320 410)">
+    <rect x="0" y="0" rx="24" ry="24" width="130" height="126" fill="#111827" stroke="#f59e0b" stroke-width="2"/>
+    <text x="65" y="38" text-anchor="middle" class="mono">Flush</text>
+    <text x="65" y="72" text-anchor="middle" class="mono-small">to SSTable</text>
+    <text x="65" y="96" text-anchor="middle" class="mono-small">on disk</text>
+  </g>
+
+  <g transform="translate(955 575)">
+    <rect x="0" y="0" rx="24" ry="24" width="250" height="90" fill="url(#level1)" stroke="#334155" stroke-width="2"/>
+    <text x="22" y="34" class="mono">SSTable L0</text>
+    <text x="22" y="64" class="mono-small">recent flushes</text>
+<!--    <rect x="158" y="18" rx="10" ry="10" width="70" height="54" fill="#0f172a" stroke="#38bdf8" stroke-width="1.5"/>-->
+<!--    <text x="193" y="50" text-anchor="middle" class="mono-small">k1</text>-->
+  </g>
+
+  <g transform="translate(1230 575)">
+    <rect x="0" y="0" rx="24" ry="24" width="250" height="90" fill="url(#level1)" stroke="#334155" stroke-width="2"/>
+    <text x="22" y="34" class="mono">SSTable L1</text>
+    <text x="22" y="64" class="mono-small">compacted runs</text>
+<!--    <rect x="158" y="18" rx="10" ry="10" width="70" height="54" fill="#0f172a" stroke="#22c55e" stroke-width="1.5"/>-->
+<!--    <text x="193" y="50" text-anchor="middle" class="mono-small">k2</text>-->
+  </g>
+
+  <g transform="translate(1082 690)">
+    <rect x="0" y="0" rx="24" ry="24" width="280" height="90" fill="url(#level2)" stroke="#334155" stroke-width="2"/>
+    <text x="22" y="34" class="mono">Compaction</text>
+    <text x="22" y="60" class="mono-small">merge overlaps</text>
+    <text x="22" y="82" class="mono-small">remove stale data</text>
+<!--    <path d="M198 21 L248 21 L248 67 L198 67 Z" fill="#111827" stroke="#38bdf8" stroke-width="1.5"/>-->
+<!--    <path d="M208 33 H238 M208 49 H238" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>-->
   </g>
 
   <g stroke="#64748b" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none">
-    <path d="M420 435 L460 435"/>
+    <path d="M405 435 L450 435"/>
     <path d="M880 435 L920 435"/>
+    <path d="M1105 536 C1105 560, 1105 565, 1090 575"/>
+    <path d="M1240 536 C1240 560, 1240 565, 1240 575"/>
+    <path d="M1390 536 C1390 565, 1390 575, 1375 575"/>
+    <path d="M1350 665 C1330 680, 1315 688, 1280 690"/>
   </g>
   <g fill="#94a3b8">
-    <path d="M450 435 l-18 -10 v20 z"/>
+    <path d="M435 435 l-18 -10 v20 z"/>
     <path d="M910 435 l-18 -10 v20 z"/>
+    <path d="M1086 571 l-10 18 h20 z"/>
+    <path d="M1232 571 l-10 18 h20 z"/>
+    <path d="M1378 571 l-10 18 h20 z"/>
+    <path d="M1286 692 l-18 -10 v20 z"/>
   </g>
 
   <g>
-    <rect x="110" y="635" rx="22" ry="22" width="1370" height="120" fill="#0b1220" stroke="#1e293b" stroke-width="2"/>
-    <text x="150" y="690" class="label">What this engine emphasizes</text>
-    <text x="150" y="734" class="small">Simple architecture • deterministic behavior • concurrency safety • measurable performance</text>
+    <rect x="110" y="905" rx="22" ry="22" width="1370" height="120" fill="#0b1220" stroke="#1e293b" stroke-width="2"/>
+    <text x="150" y="960" class="label">What this engine emphasizes</text>
+    <text x="150" y="1004" class="small">Memtable + WAL for writes • SSTables for persistence • compaction for long-term performance</text>
   </g>
+
+<!--  <rect x="930" y="332" rx="16" ry="16" width="120" height="30" fill="#38bdf8" opacity="0.18"/>-->
+<!--  <text x="990" y="353" text-anchor="middle" class="mono-small" fill="#7dd3fc">LSM-based</text>-->
 </svg>

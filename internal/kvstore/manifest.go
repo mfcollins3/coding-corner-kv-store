@@ -14,6 +14,7 @@ import (
 type manifest struct {
 	filename      string
 	nextSSTableID int
+	sstables      []string
 }
 
 func newManifest(filename string) (*manifest, error) {
@@ -31,6 +32,7 @@ func newManifest(filename string) (*manifest, error) {
 	return &manifest{
 		filename:      filename,
 		nextSSTableID: 1,
+		sstables:      []string{},
 	}, nil
 }
 
@@ -44,7 +46,7 @@ func openManifest(filename string) (*manifest, error) {
 		_ = file.Close()
 	}()
 
-	nextSSTableID, err := getNextSSTableID(file)
+	sstables, nextSSTableID, err := getNextSSTableID(file)
 	if err != nil {
 		return nil, err
 	}
@@ -52,23 +54,26 @@ func openManifest(filename string) (*manifest, error) {
 	return &manifest{
 		filename:      filename,
 		nextSSTableID: nextSSTableID,
+		sstables:      sstables,
 	}, nil
 }
 
-func getNextSSTableID(r io.Reader) (int, error) {
+func getNextSSTableID(r io.Reader) ([]string, int, error) {
 	maxID := 0
+	sstables := []string{}
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "sst-") &&
 			strings.HasSuffix(line, ".json") {
+			sstables = append(sstables, line)
 			idStr := strings.TrimSuffix(
 				strings.TrimPrefix(line, "sst-"),
 				".json",
 			)
 			id, err := strconv.Atoi(idStr)
 			if err != nil {
-				return 0, fmt.Errorf(
+				return []string{}, 0, fmt.Errorf(
 					"unable to parse sst id from %q: %w",
 					line,
 					err,
@@ -80,10 +85,11 @@ func getNextSSTableID(r io.Reader) (int, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return 0, fmt.Errorf("failed to read manifest: %w", err)
+		return []string{}, 0, fmt.Errorf("failed to read manifest: %w", err)
 	}
 
-	return maxID + 1, nil
+	slices.Reverse(sstables)
+	return sstables, maxID + 1, nil
 }
 
 func (m *manifest) nextSSTableFilename() string {
@@ -111,26 +117,10 @@ func (m *manifest) addSSTable(filename string) error {
 		return fmt.Errorf("unable to append sstable to manifest: %w", err)
 	}
 
+	m.sstables = append([]string{path.Base(filename)}, m.sstables...)
 	return nil
 }
 
-func (m *manifest) sstables() ([]string, error) {
-	file, err := openRead(m.filename)
-	if err != nil {
-		return nil, fmt.Errorf("unable to open manifest file: %w", err)
-	}
-
-	defer func() {
-		_ = file.Close()
-	}()
-
-	scanner := bufio.NewScanner(file)
-	var sstables []string
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		sstables = append(sstables, line)
-	}
-
-	slices.Reverse(sstables)
-	return sstables, nil
+func (m *manifest) getSSTables() []string {
+	return m.sstables
 }

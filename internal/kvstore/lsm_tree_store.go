@@ -68,10 +68,7 @@ func (s *lsmTreeStore) Get(key string) (string, error) {
 		return value, nil
 	}
 
-	sstables, err := s.manifest.sstables()
-	if err != nil {
-		return "", fmt.Errorf("unable to load sstables: %w", err)
-	}
+	sstables := s.manifest.getSSTables()
 
 	for _, filename := range sstables {
 		sstable, err := openSSTable(filename)

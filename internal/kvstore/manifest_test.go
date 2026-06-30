@@ -9,21 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSSTablesFailsIfManifestCannotBeOpened(t *testing.T) {
-	tempDir := t.TempDir()
-	manifestPath := path.Join(tempDir, "MANIFEST")
-	manifest, err := newManifest(manifestPath)
-	assert.NoError(t, err)
-
-	orig := openRead
-	t.Cleanup(func() { openRead = orig })
-	openRead = func(name string) (*os.File, error) {
-		return nil, fmt.Errorf("open error")
-	}
-	_, err = manifest.sstables()
-	assert.Error(t, err)
-}
-
 func TestSSTablesReturnsSSTableFiles(t *testing.T) {
 	tempDir := t.TempDir()
 	manifestPath := path.Join(tempDir, "MANIFEST")
@@ -41,9 +26,8 @@ func TestSSTablesReturnsSSTableFiles(t *testing.T) {
 
 	manifest, err := openManifest(manifestPath)
 	assert.NoError(t, err)
-	sstables, err := manifest.sstables()
+	sstables := manifest.getSSTables()
 
-	assert.NoError(t, err)
 	assert.Equal(t, 3, len(sstables))
 	expected := []string{"sst-3.json", "sst-2.json", "sst-1.json"}
 	assert.Equal(t, expected, sstables)

@@ -30,9 +30,10 @@ import (
 const maxMemtableEntries = 2000
 
 type lsmTreeStore struct {
-	mt       memtable
-	path     string
-	manifest *manifest
+	mt            memtable
+	path          string
+	manifest      *manifest
+	negativeCache map[string]struct{}
 }
 
 func newLSMTreeStore(dir string) (*lsmTreeStore, error) {
@@ -42,9 +43,10 @@ func newLSMTreeStore(dir string) (*lsmTreeStore, error) {
 	}
 
 	return &lsmTreeStore{
-		mt:       newMemtable(),
-		path:     dir,
-		manifest: manifest,
+		mt:            newMemtable(),
+		path:          dir,
+		manifest:      manifest,
+		negativeCache: make(map[string]struct{}),
 	}, nil
 }
 
@@ -57,6 +59,10 @@ func createOrLoadManifest(filename string) (*manifest, error) {
 }
 
 func (s *lsmTreeStore) Get(key string) (string, error) {
+	if _, ok := s.negativeCache[key]; ok {
+		return "", fmt.Errorf("key %s not found: %w", key, ErrKeyNotFound)
+	}
+
 	value, ok := s.mt[key]
 	if ok {
 		return value, nil
@@ -79,11 +85,13 @@ func (s *lsmTreeStore) Get(key string) (string, error) {
 		}
 	}
 
+	s.negativeCache[key] = struct{}{}
 	return "", fmt.Errorf("key %s not found: %w", key, ErrKeyNotFound)
 }
 
 func (s *lsmTreeStore) Set(key, value string) error {
 	s.mt.set(key, value)
+	delete(s.negativeCache, key)
 	if s.mt.len() < maxMemtableEntries {
 		return nil
 	}

@@ -118,6 +118,8 @@ func (wal *writeAheadLog) Close() error {
 	return wal.file.Close()
 }
 
+var recordTerminator = []byte{'\n'}
+
 func (wal *writeAheadLog) log(
 	op operation,
 	key string,
@@ -133,7 +135,12 @@ func (wal *writeAheadLog) log(
 		return fmt.Errorf("error marshalling log entry: %w", err)
 	}
 
-	_, err = fmt.Fprintln(wal.file, string(b))
+	_, err = writeFile(wal.file, b)
+	if err != nil {
+		return fmt.Errorf("error writing log entry: %w", err)
+	}
+
+	_, err = writeFile(wal.file, recordTerminator)
 	if err != nil {
 		return fmt.Errorf("error writing log entry: %w", err)
 	}

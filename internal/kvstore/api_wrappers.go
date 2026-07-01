@@ -42,3 +42,6 @@ var syncFile = func(f *os.File) error {
 var truncateFile = func(f *os.File, size int64) error {
 	return f.Truncate(size)
 }
+var writeFile = func(f *os.File, b []byte) (int, error) {
+	return f.Write(b)
+}

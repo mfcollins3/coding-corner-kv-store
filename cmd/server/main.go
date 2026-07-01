@@ -22,11 +22,14 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/pprof"
 	"sync"
 	"syscall"
 	"time"
@@ -39,6 +42,31 @@ import (
 const histogramSize = 10_000
 
 func main() {
+	var cpuProfile = flag.String("cpuprofile", "", "write cpu profile to file")
+	var memProfile = flag.String(
+		"memprofile",
+		"",
+		"write memory profile to file",
+	)
+	flag.Parse()
+
+	if *cpuProfile != "" {
+		f, err := os.Create(*cpuProfile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+
+		defer func() {
+			_ = f.Close()
+		}()
+
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+
+		defer pprof.StopCPUProfile()
+	}
+
 	ctx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
@@ -107,5 +135,21 @@ func main() {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatalf("server shutdown error: %v", err)
+	}
+
+	if *memProfile != "" {
+		f, err := os.Create(*memProfile)
+		if err != nil {
+			log.Fatalf("could not create memory profile: %v", err)
+		}
+
+		defer func() {
+			_ = f.Close()
+		}()
+
+		runtime.GC()
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatalf("could not write memory profile: %v", err)
+		}
 	}
 }

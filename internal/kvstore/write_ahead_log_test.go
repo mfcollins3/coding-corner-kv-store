@@ -282,17 +282,39 @@ func TestWALLog(t *testing.T) {
 		func(t *testing.T) {
 			tempDir := t.TempDir()
 			filename := path.Join(tempDir, "wal.db")
-			orig := openFile
-			t.Cleanup(func() { openFile = orig })
-			openFile = func(
-				name string,
-				flag int,
-				perm os.FileMode,
-			) (*os.File, error) {
-				file, err := os.OpenFile(name, flag, perm)
-				assert.NoError(t, err)
-				assert.NoError(t, file.Close())
-				return file, nil
+			orig := writeFile
+			t.Cleanup(func() { writeFile = orig })
+			injectedError := errors.New("injected error")
+			writeFile = func(f *os.File, b []byte) (int, error) {
+				return 0, injectedError
+			}
+			wal, err := newWriteAheadLog(filename)
+			assert.NoError(t, err)
+			defer func() {
+				_ = wal.Close()
+			}()
+
+			err = wal.log(operationPut, "fruit", "apple")
+
+			assert.Error(t, err)
+			assert.ErrorContains(t, err, "error writing log entry")
+		},
+	)
+
+	t.Run(
+		"it returns an error if the record terminator cannot be written",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			filename := path.Join(tempDir, "wal.db")
+			orig := writeFile
+			t.Cleanup(func() { writeFile = orig })
+			injectedError := errors.New("injected error")
+			writeFile = func(f *os.File, b []byte) (int, error) {
+				if len(b) == 1 && b[0] == recordTerminator[0] {
+					return 0, injectedError
+				}
+
+				return f.Write(b)
 			}
 			wal, err := newWriteAheadLog(filename)
 			assert.NoError(t, err)

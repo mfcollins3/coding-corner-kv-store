@@ -67,6 +67,15 @@ func TestNewLSMTreeStore(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
+		createFile := func(name string) {
+			file, err := os.Create(path.Join(tempDir, name))
+			assert.NoError(t, err)
+			assert.NoError(t, file.Close())
+		}
+		createFile("sst-1.json")
+		createFile("sst-2.json")
+		createFile("sst-3.json")
+
 		t.Run("it succeeds", func(t *testing.T) {
 			store, err := newLSMTreeStore(tempDir)
 			assert.NoError(t, err)
@@ -144,6 +153,27 @@ func TestNewLSMTreeStore(t *testing.T) {
 
 				assert.ErrorIs(t, err, injectedError)
 				assert.ErrorContains(t, err, "failed to replay log")
+			},
+		)
+
+		t.Run(
+			"it returns an error of dangling SSTables cannot be deleted",
+			func(t *testing.T) {
+				injectedError := errors.New("injected error")
+				orig := findFiles
+				t.Cleanup(func() { findFiles = orig })
+				findFiles = func(path string) ([]string, error) {
+					return []string{}, injectedError
+				}
+
+				_, err := newLSMTreeStore(tempDir)
+
+				assert.ErrorIs(t, err, injectedError)
+				assert.ErrorContains(
+					t,
+					err,
+					"unable to clear dangling sstable files",
+				)
 			},
 		)
 	})
@@ -456,6 +486,96 @@ func TestLSMTreeStoreSet(t *testing.T) {
 
 			assert.ErrorIs(t, err, injectedError)
 			assert.ErrorContains(t, err, "failed to truncate write-ahead log")
+		},
+	)
+}
+
+func TestClearDanglingSSTables(t *testing.T) {
+	createFile := func(name string) {
+		file, err := os.Create(name)
+		assert.NoError(t, err)
+		_ = file.Close()
+	}
+
+	t.Run("it returns an error if the file search fails", func(t *testing.T) {
+		tempDir := t.TempDir()
+		orig := findFiles
+		t.Cleanup(func() { findFiles = orig })
+		injectedError := errors.New("injected error")
+		findFiles = func(dir string) ([]string, error) {
+			return nil, injectedError
+		}
+
+		err := clearDanglingSSTables(
+			tempDir,
+			[]string{"sst-1.json", "sst-2.json", "sst-3.json"},
+		)
+
+		assert.ErrorIs(t, err, injectedError)
+		assert.ErrorContains(t, err, "unable to find SST tables")
+	})
+
+	t.Run(
+		"it returns an error if a file cannot be removed",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			orig := removeFile
+			t.Cleanup(func() { removeFile = orig })
+			injectedError := errors.New("injected error")
+			removeFile = func(name string) error {
+				return injectedError
+			}
+			createFile(path.Join(tempDir, "sst-1.json"))
+			createFile(path.Join(tempDir, "sst-2.json"))
+
+			err := clearDanglingSSTables(tempDir, []string{"sst-1.json"})
+
+			assert.ErrorIs(t, err, injectedError)
+			assert.ErrorContains(t, err, "unable to remove dangling SST table")
+		},
+	)
+
+	t.Run(
+		"it returns an error if the directory cannot be opened",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			orig := openRead
+			t.Cleanup(func() { openRead = orig })
+			injectedError := errors.New("injected error")
+			openRead = func(name string) (*os.File, error) {
+				return nil, injectedError
+			}
+			createFile(path.Join(tempDir, "sst-1.json"))
+			createFile(path.Join(tempDir, "sst-2.json"))
+
+			err := clearDanglingSSTables(tempDir, []string{"sst-1.json"})
+
+			assert.ErrorIs(t, err, injectedError)
+			assert.ErrorContains(t, err, "unable to open directory")
+		},
+	)
+
+	t.Run(
+		"it returns an error if the directory cannot be synced",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			orig := syncFile
+			t.Cleanup(func() { syncFile = orig })
+			injectedError := errors.New("injected error")
+			syncFile = func(f *os.File) error {
+				if f.Name() == tempDir {
+					return injectedError
+				}
+
+				return orig(f)
+			}
+			createFile(path.Join(tempDir, "sst-1.json"))
+			createFile(path.Join(tempDir, "sst-2.json"))
+
+			err := clearDanglingSSTables(tempDir, []string{"sst-1.json"})
+
+			assert.ErrorIs(t, err, injectedError)
+			assert.ErrorContains(t, err, "unable to sync directory")
 		},
 	)
 }

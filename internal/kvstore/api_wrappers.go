@@ -23,6 +23,7 @@ package kvstore
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 )
 
 // These "API wrappers" are used for unit testing and injecting error scenarios
@@ -31,9 +32,11 @@ import (
 // wrapper functions for those standard library functions so that I can change
 // out the implementation in unit tests to validate failure scenarios.
 
+var findFiles = filepath.Glob
 var marshalJSON = json.Marshal
 var openFile = os.OpenFile
 var openRead = os.Open
+var removeFile = os.Remove
 var renameFile = os.Rename
 var statFile = os.Stat
 var syncFile = func(f *os.File) error {

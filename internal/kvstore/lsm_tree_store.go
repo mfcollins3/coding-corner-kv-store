@@ -26,6 +26,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 )
 
 const maxMemtableEntries = 2000
@@ -57,6 +58,14 @@ func newLSMTreeStore(dir string) (*lsmTreeStore, error) {
 	if err != nil {
 		_ = wal.Close()
 		return nil, fmt.Errorf("unable to load manifest: %w", err)
+	}
+
+	if err := clearDanglingSSTables(dir, manifest.sstables); err != nil {
+		_ = wal.Close()
+		return nil, fmt.Errorf(
+			"unable to clear dangling sstable files: %w",
+			err,
+		)
 	}
 
 	return &lsmTreeStore{
@@ -141,6 +150,52 @@ func (s *lsmTreeStore) flush() error {
 
 	if err := s.wal.truncate(); err != nil {
 		return fmt.Errorf("failed to truncate write-ahead log: %w", err)
+	}
+
+	return nil
+}
+
+func clearDanglingSSTables(dir string, ssTables []string) error {
+	set := make(map[string]struct{})
+	for _, ssTable := range ssTables {
+		set[ssTable] = struct{}{}
+	}
+
+	matches, err := findFiles(path.Join(dir, "sst-*.json"))
+	if err != nil {
+		return fmt.Errorf("unable to find SST tables in %s: %w", dir, err)
+	}
+
+	removedAny := false
+	for _, filename := range matches {
+		if _, ok := set[filepath.Base(filename)]; ok {
+			continue
+		}
+
+		if err := removeFile(filename); err != nil {
+			return fmt.Errorf(
+				"unable to remove dangling SST table %q: %w",
+				filename,
+				err,
+			)
+		}
+
+		removedAny = true
+	}
+
+	if removedAny {
+		directory, err := openRead(dir)
+		if err != nil {
+			return fmt.Errorf("unable to open directory %s: %w", dir, err)
+		}
+
+		defer func() {
+			_ = directory.Close()
+		}()
+
+		if err := syncFile(directory); err != nil {
+			return fmt.Errorf("unable to sync directory %s: %w", dir, err)
+		}
 	}
 
 	return nil

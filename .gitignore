@@ -21,3 +21,4 @@
 MANIFEST
 put.txt
 sst-*.json
+wal.db

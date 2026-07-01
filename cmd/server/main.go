@@ -68,6 +68,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("unable to create the store: %v", err)
 	}
+	defer func() {
+		_ = store.Close()
+	}()
 
 	kvMux := http.NewServeMux()
 	kvMux.Handle("GET /{key}", api.GetValue(store))

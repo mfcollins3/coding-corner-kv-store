@@ -189,6 +189,69 @@ func TestSaveSSTable(t *testing.T) {
 			assert.ErrorContains(t, err, "unable to serialize sstable data")
 		},
 	)
+
+	t.Run(
+		"it reports an error if the file cannot be synced",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			filename := path.Join(tempDir, "sst-1.json")
+			orig := syncFile
+			t.Cleanup(func() { syncFile = orig })
+			injectedError := errors.New("injected error")
+			syncFile = func(f *os.File) error {
+				return injectedError
+			}
+
+			st := newSSTable(newMemtable())
+			err := st.Save(filename)
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
+
+	t.Run(
+		"it reports an error if the parent directory cannot be synced",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			filename := path.Join(tempDir, "sst-1.json")
+			orig := openRead
+			t.Cleanup(func() { openRead = orig })
+			injectedError := errors.New("injected error")
+			openRead = func(path string) (*os.File, error) {
+				return nil, injectedError
+			}
+
+			st := newSSTable(newMemtable())
+			err := st.Save(filename)
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
+
+	t.Run(
+		"it reports an error if the parent directory cannot be synced",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			filename := path.Join(tempDir, "sst-1.json")
+			orig := syncFile
+			t.Cleanup(func() { syncFile = orig })
+			injectedError := errors.New("injected error")
+			calls := 0
+			syncFile = func(f *os.File) error {
+				calls++
+				if calls == 2 {
+					return injectedError
+				}
+
+				return orig(f)
+			}
+
+			st := newSSTable(newMemtable())
+			err := st.Save(filename)
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
 }
 
 func TestSSTableGet(t *testing.T) {

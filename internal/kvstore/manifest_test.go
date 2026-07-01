@@ -316,7 +316,120 @@ sst-5.json
 			assert.ErrorContains(
 				t,
 				err,
-				"unable to append sstable to manifest",
+				"unable to write updated manifest",
 			)
-		})
+		},
+	)
+
+	t.Run(
+		"it reports an error if the temporary manifest file cannot be synced",
+		func(t *testing.T) {
+			orig := syncFile
+			t.Cleanup(func() { syncFile = orig })
+			injectedError := errors.New("some error")
+			syncFile = func(f *os.File) error {
+				return injectedError
+			}
+
+			err := manifest.addSSTable(path.Join(tempDir, "sst-5.json"))
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
+
+	t.Run(
+		"it reports an error if the manifest file cannot be renamed",
+		func(t *testing.T) {
+			orig := renameFile
+			t.Cleanup(func() { renameFile = orig })
+			injectedError := errors.New("some error")
+			renameFile = func(oldpath, newpath string) error {
+				return injectedError
+			}
+
+			err := manifest.addSSTable(path.Join(tempDir, "sst-5.json"))
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
+
+	t.Run(
+		"it reports an error if the manifest file cannot be opened",
+		func(t *testing.T) {
+			orig := openRead
+			t.Cleanup(func() { openRead = orig })
+			injectedError := errors.New("some error")
+			openRead = func(name string) (*os.File, error) {
+				if name == manifest.filename {
+					return nil, injectedError
+				}
+
+				return orig(name)
+			}
+
+			err := manifest.addSSTable(path.Join(tempDir, "sst-5.json"))
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
+
+	t.Run(
+		"it reports an error if the manifest file cannot be synced",
+		func(t *testing.T) {
+			orig := syncFile
+			t.Cleanup(func() { syncFile = orig })
+			injectedError := errors.New("some error")
+			syncFile = func(f *os.File) error {
+				if f.Name() == manifest.filename {
+					return injectedError
+				}
+
+				return orig(f)
+			}
+
+			err := manifest.addSSTable(path.Join(tempDir, "sst-5.json"))
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
+
+	t.Run(
+		"it reports an error if the directory cannot be opened",
+		func(t *testing.T) {
+			orig := openRead
+			t.Cleanup(func() { openRead = orig })
+			injectedError := errors.New("some error")
+			openRead = func(name string) (*os.File, error) {
+				if name == path.Dir(manifest.filename) {
+					return nil, injectedError
+				}
+
+				return orig(name)
+			}
+
+			err := manifest.addSSTable(path.Join(tempDir, "sst-5.json"))
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
+
+	t.Run(
+		"it reports an error if the directory cannot be synced",
+		func(t *testing.T) {
+			orig := syncFile
+			t.Cleanup(func() { syncFile = orig })
+			injectedError := errors.New("some error")
+			syncFile = func(f *os.File) error {
+				if f.Name() == path.Dir(manifest.filename) {
+					return injectedError
+				}
+
+				return orig(f)
+			}
+
+			err := manifest.addSSTable(path.Join(tempDir, "sst-5.json"))
+
+			assert.ErrorIs(t, err, injectedError)
+		},
+	)
 }

@@ -2,4 +2,4 @@
 
 set -e
 
-rm -f MANIFEST sst-*.json
+rm -f MANIFEST sst-*.json wal.db

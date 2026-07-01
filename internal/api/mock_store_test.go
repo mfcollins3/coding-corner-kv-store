@@ -26,6 +26,11 @@ type mockStore struct {
 	mock.Mock
 }
 
+func (s *mockStore) Close() error {
+	args := s.Called()
+	return args.Error(0)
+}
+
 func (s *mockStore) Get(key string) (string, error) {
 	args := s.Called(key)
 	return args.String(0), args.Error(1)

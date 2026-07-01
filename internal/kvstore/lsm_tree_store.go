@@ -23,6 +23,7 @@ package kvstore
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 )
@@ -30,23 +31,40 @@ import (
 const maxMemtableEntries = 2000
 
 type lsmTreeStore struct {
+	io.Closer
+
 	mt            memtable
 	path          string
 	manifest      *manifest
 	negativeCache map[string]struct{}
+	wal           *writeAheadLog
 }
 
 func newLSMTreeStore(dir string) (*lsmTreeStore, error) {
+	memtable := newMemtable()
+
+	logFilename := path.Join(dir, "wal.db")
+	if err := replayWriteAheadLog(logFilename, memtable); err != nil {
+		return nil, fmt.Errorf("failed to replay log: %w", err)
+	}
+
+	wal, err := newWriteAheadLog(logFilename)
+	if err != nil {
+		return nil, fmt.Errorf("unable to open write-ahead log: %w", err)
+	}
+
 	manifest, err := createOrLoadManifest(path.Join(dir, "MANIFEST"))
 	if err != nil {
+		_ = wal.Close()
 		return nil, fmt.Errorf("unable to load manifest: %w", err)
 	}
 
 	return &lsmTreeStore{
-		mt:            newMemtable(),
+		mt:            memtable,
 		path:          dir,
 		manifest:      manifest,
 		negativeCache: make(map[string]struct{}),
+		wal:           wal,
 	}, nil
 }
 
@@ -56,6 +74,10 @@ func createOrLoadManifest(filename string) (*manifest, error) {
 	}
 
 	return openManifest(filename)
+}
+
+func (s *lsmTreeStore) Close() error {
+	return s.wal.Close()
 }
 
 func (s *lsmTreeStore) Get(key string) (string, error) {
@@ -87,6 +109,10 @@ func (s *lsmTreeStore) Get(key string) (string, error) {
 }
 
 func (s *lsmTreeStore) Set(key, value string) error {
+	if err := s.wal.log(operationPut, key, value); err != nil {
+		return fmt.Errorf("unable to write key %s to the log: %w", key, err)
+	}
+
 	s.mt.set(key, value)
 	delete(s.negativeCache, key)
 	if s.mt.len() < maxMemtableEntries {
@@ -112,6 +138,10 @@ func (s *lsmTreeStore) flush() error {
 	}
 
 	s.mt.clear()
+
+	if err := s.wal.truncate(); err != nil {
+		return fmt.Errorf("failed to truncate write-ahead log: %w", err)
+	}
 
 	return nil
 }

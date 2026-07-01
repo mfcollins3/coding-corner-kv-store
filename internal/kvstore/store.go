@@ -20,11 +20,16 @@
 
 package kvstore
 
-import "errors"
+import (
+	"errors"
+	"io"
+)
 
 var ErrKeyNotFound = errors.New("key not found")
 
 type Store interface {
+	io.Closer
+
 	Get(key string) (string, error)
 	Set(key, value string) error
 }

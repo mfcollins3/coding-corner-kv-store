@@ -24,8 +24,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"sort"
 )
+
+type sstableEntry struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
 
 type sstable []sstableEntry
 
@@ -70,25 +76,58 @@ func openSSTable(filename string) (sstable, error) {
 }
 
 func (s sstable) Save(filename string) error {
-	f, err := openFile(filename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf(
-			"unable to create sstable file at %s: %w",
-			filename,
-			err,
-		)
+	{
+		f, err := openFile(filename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf(
+				"unable to create sstable file at %s: %w",
+				filename,
+				err,
+			)
+		}
+
+		defer func() {
+			_ = f.Close()
+		}()
+
+		if err := json.NewEncoder(f).Encode(s); err != nil {
+			return fmt.Errorf(
+				"unable to serialize sstable data to %s: %w",
+				filename,
+				err,
+			)
+		}
+
+		if err := syncFile(f); err != nil {
+			return fmt.Errorf(
+				"unable to sync sstable file at %s: %w",
+				filename,
+				err,
+			)
+		}
 	}
 
-	defer func() {
-		_ = f.Close()
-	}()
+	{
+		dir, err := openRead(path.Dir(filename))
+		if err != nil {
+			return fmt.Errorf(
+				"unable to open sstable directory %q: %w",
+				filename,
+				err,
+			)
+		}
 
-	if err := json.NewEncoder(f).Encode(s); err != nil {
-		return fmt.Errorf(
-			"unable to serialize sstable data to %s: %w",
-			filename,
-			err,
-		)
+		defer func() {
+			_ = dir.Close()
+		}()
+
+		if err := syncFile(dir); err != nil {
+			return fmt.Errorf(
+				"unable to sync sstable directory %q: %w",
+				filename,
+				err,
+			)
+		}
 	}
 
 	return nil

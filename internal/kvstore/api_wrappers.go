@@ -20,7 +20,25 @@
 
 package kvstore
 
-type sstableEntry struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+import (
+	"encoding/json"
+	"os"
+)
+
+// These "API wrappers" are used for unit testing and injecting error scenarios
+// for unit tests. Because my implementation makes use of several functions in
+// the Go standard library that are hard to mock out, I have created these API
+// wrapper functions for those standard library functions so that I can change
+// out the implementation in unit tests to validate failure scenarios.
+
+var marshalJSON = json.Marshal
+var openFile = os.OpenFile
+var openRead = os.Open
+var renameFile = os.Rename
+var statFile = os.Stat
+var syncFile = func(f *os.File) error {
+	return f.Sync()
+}
+var truncateFile = func(f *os.File, size int64) error {
+	return f.Truncate(size)
 }

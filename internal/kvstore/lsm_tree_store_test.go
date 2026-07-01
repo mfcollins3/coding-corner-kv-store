@@ -44,8 +44,11 @@ func TestNewLSMTreeStore(t *testing.T) {
 		}
 
 		store, err := newLSMTreeStore(tempDir)
-
 		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+
 		assert.NotNil(t, store)
 		assert.Empty(t, store.mt)
 		assert.Equal(t, tempDir, store.path)
@@ -66,14 +69,18 @@ func TestNewLSMTreeStore(t *testing.T) {
 
 		t.Run("it succeeds", func(t *testing.T) {
 			store, err := newLSMTreeStore(tempDir)
-
 			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
+
 			assert.NotNil(t, store)
 			assert.Empty(t, store.mt)
 			assert.Equal(t, tempDir, store.path)
 			assert.Equal(t, 4, store.manifest.nextSSTableID)
 			assert.NotNil(t, store.negativeCache)
 		})
+
 		t.Run(
 			"it returns an error if the MANIFEST cannot be opened",
 			func(t *testing.T) {
@@ -81,12 +88,62 @@ func TestNewLSMTreeStore(t *testing.T) {
 				orig := openRead
 				t.Cleanup(func() { openRead = orig })
 				openRead = func(name string) (*os.File, error) {
-					return nil, injectedError
+					if strings.HasSuffix(name, "MANIFEST") {
+						return nil, injectedError
+					}
+
+					return orig(name)
 				}
 
 				_, err := newLSMTreeStore(tempDir)
 
 				assert.ErrorIs(t, err, injectedError)
+			},
+		)
+
+		t.Run(
+			"it returns an error if the WAL cannot be created",
+			func(t *testing.T) {
+				injectedError := errors.New("injected error")
+				orig := openFile
+				t.Cleanup(func() { openFile = orig })
+				openFile = func(
+					name string,
+					flag int,
+					perm os.FileMode,
+				) (*os.File, error) {
+					if strings.HasSuffix(name, "wal.db") {
+						return nil, injectedError
+					}
+
+					return orig(name, flag, perm)
+				}
+
+				_, err := newLSMTreeStore(tempDir)
+
+				assert.ErrorIs(t, err, injectedError)
+				assert.ErrorContains(t, err, "unable to open write-ahead log")
+			},
+		)
+
+		t.Run(
+			"it returns an error if the WAL cannot be replayed",
+			func(t *testing.T) {
+				injectedError := errors.New("injected error")
+				orig := statFile
+				t.Cleanup(func() { statFile = orig })
+				statFile = func(name string) (os.FileInfo, error) {
+					if strings.HasSuffix(name, "wal.db") {
+						return nil, injectedError
+					}
+
+					return orig(name)
+				}
+
+				_, err := newLSMTreeStore(tempDir)
+
+				assert.ErrorIs(t, err, injectedError)
+				assert.ErrorContains(t, err, "failed to replay log")
 			},
 		)
 	})
@@ -100,6 +157,10 @@ func TestLSMTreeStoreGet(t *testing.T) {
 		func(t *testing.T) {
 			store, err := newLSMTreeStore(tempDir)
 			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
+
 			store.negativeCache["test"] = struct{}{}
 
 			_, err = store.Get("test")
@@ -113,6 +174,10 @@ func TestLSMTreeStoreGet(t *testing.T) {
 		func(t *testing.T) {
 			store, err := newLSMTreeStore(tempDir)
 			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
+
 			store.mt.set("hello", "world")
 
 			val, err := store.Get("hello")
@@ -149,6 +214,10 @@ func TestLSMTreeStoreGet(t *testing.T) {
 
 			store, err := newLSMTreeStore(tempDir)
 			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
+
 			val, err := store.Get("hello")
 
 			assert.NoError(t, err)
@@ -183,12 +252,19 @@ func TestLSMTreeStoreGet(t *testing.T) {
 
 			store, err := newLSMTreeStore(tempDir)
 			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
 
 			injectedError := errors.New("injected error")
 			orig := openRead
 			t.Cleanup(func() { openRead = orig })
 			openRead = func(name string) (*os.File, error) {
-				return nil, injectedError
+				if strings.HasSuffix(name, "sst-1.json") {
+					return nil, injectedError
+				}
+
+				return orig(name)
 			}
 
 			_, err = store.Get("test")
@@ -202,6 +278,9 @@ func TestLSMTreeStoreGet(t *testing.T) {
 		func(t *testing.T) {
 			store, err := newLSMTreeStore(tempDir)
 			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
 
 			_, err = store.Get("test")
 
@@ -217,6 +296,9 @@ func TestLSMTreeStoreSet(t *testing.T) {
 		tempDir := t.TempDir()
 		store, err := newLSMTreeStore(tempDir)
 		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
 
 		err = store.Set("test", "passed")
 		assert.NoError(t, err)
@@ -229,6 +311,9 @@ func TestLSMTreeStoreSet(t *testing.T) {
 		tempDir := t.TempDir()
 		store, err := newLSMTreeStore(tempDir)
 		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
 
 		for i := range maxMemtableEntries {
 			assert.NoError(
@@ -256,6 +341,9 @@ func TestLSMTreeStoreSet(t *testing.T) {
 			tempDir := t.TempDir()
 			store, err := newLSMTreeStore(tempDir)
 			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
 
 			for i := range maxMemtableEntries - 1 {
 				assert.NoError(
@@ -278,11 +366,14 @@ func TestLSMTreeStoreSet(t *testing.T) {
 	)
 
 	t.Run(
-		"it returns an error if the manifest cannot be opdated",
+		"it returns an error if the manifest cannot be updated",
 		func(t *testing.T) {
 			tempDir := t.TempDir()
 			store, err := newLSMTreeStore(tempDir)
 			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
 
 			for i := range maxMemtableEntries - 1 {
 				assert.NoError(
@@ -295,7 +386,7 @@ func TestLSMTreeStoreSet(t *testing.T) {
 			orig := openFile
 			t.Cleanup(func() { openFile = orig })
 			openFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
-				if !strings.HasSuffix(name, "MANIFEST") {
+				if !strings.HasSuffix(name, "MANIFEST.tmp") {
 					return os.OpenFile(name, flag, perm)
 				}
 
@@ -306,6 +397,65 @@ func TestLSMTreeStoreSet(t *testing.T) {
 
 			assert.ErrorIs(t, err, injectedError)
 			assert.ErrorContains(t, err, "failed to add sstable to manifest")
+		},
+	)
+
+	t.Run(
+		"it returns an error if the WAL log fails",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
+
+			injectedError := errors.New("injected error")
+			orig := syncFile
+			t.Cleanup(func() { syncFile = orig })
+			syncFile = func(f *os.File) error {
+				if f == store.wal.file {
+					return injectedError
+				}
+
+				return orig(f)
+			}
+
+			err = store.Set("test", "failed")
+
+			assert.ErrorIs(t, err, injectedError)
+			assert.ErrorContains(t, err, "unable to write key test to the log")
+		},
+	)
+
+	t.Run(
+		"it returns an error if the WAL cannot be truncated",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
+
+			for i := range maxMemtableEntries - 1 {
+				assert.NoError(
+					t,
+					store.Set(fmt.Sprintf("key-%d", i), strconv.Itoa(i)),
+				)
+			}
+
+			injectedError := errors.New("injected error")
+			orig := truncateFile
+			t.Cleanup(func() { truncateFile = orig })
+			truncateFile = func(f *os.File, size int64) error {
+				return injectedError
+			}
+
+			err = store.Set("test", "failed")
+
+			assert.ErrorIs(t, err, injectedError)
+			assert.ErrorContains(t, err, "failed to truncate write-ahead log")
 		},
 	)
 }

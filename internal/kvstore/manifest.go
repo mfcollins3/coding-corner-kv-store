@@ -116,25 +116,89 @@ func (m *manifest) nextSSTableFilename() string {
 }
 
 func (m *manifest) addSSTable(filename string) error {
-	f, err := openFile(
-		m.filename,
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
-		0644,
+	tempFilename := fmt.Sprintf(
+		"%s.tmp",
+		strings.TrimSuffix(m.filename, path.Ext(m.filename)),
 	)
-	if err != nil {
-		return fmt.Errorf("error opening manifest file: %w", err)
+	sstables := append([]string{path.Base(filename)}, m.sstables...)
+
+	writeTemporaryManifest := func() error {
+		f, err := openFile(
+			tempFilename,
+			os.O_CREATE|os.O_TRUNC|os.O_WRONLY,
+			0644,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to create manifest file: %w", err)
+		}
+
+		defer func() {
+			_ = f.Close()
+		}()
+
+		for i := len(sstables) - 1; i >= 0; i-- {
+			_, err = fmt.Fprintln(f, sstables[i])
+			if err != nil {
+				return fmt.Errorf("unable to write updated manifest: %w", err)
+			}
+		}
+
+		if err := syncFile(f); err != nil {
+			return fmt.Errorf("unable to sync new manifest: %w", err)
+		}
+
+		return nil
+	}
+	replaceManifest := func() error {
+		if err := renameFile(tempFilename, m.filename); err != nil {
+			return fmt.Errorf("unable to replace manifest file: %w", err)
+		}
+
+		manifestFile, err := openRead(m.filename)
+		if err != nil {
+			return fmt.Errorf("unable to open manifest file: %w", err)
+		}
+
+		defer func() {
+			_ = manifestFile.Close()
+		}()
+
+		if err := syncFile(manifestFile); err != nil {
+			return fmt.Errorf("unable to sync manifest file: %w", err)
+		}
+
+		return nil
+	}
+	syncDirectory := func() error {
+		dir, err := openRead(path.Dir(m.filename))
+		if err != nil {
+			return fmt.Errorf("unable to open directory: %w", err)
+		}
+
+		defer func() {
+			_ = dir.Close()
+		}()
+
+		if err := syncFile(dir); err != nil {
+			return fmt.Errorf("unable to sync directory: %w", err)
+		}
+
+		return nil
 	}
 
-	defer func() {
-		_ = f.Close()
-	}()
-
-	_, err = fmt.Fprintln(f, path.Base(filename))
-	if err != nil {
-		return fmt.Errorf("unable to append sstable to manifest: %w", err)
+	if err := writeTemporaryManifest(); err != nil {
+		return err
 	}
 
-	m.sstables = append([]string{path.Base(filename)}, m.sstables...)
+	if err := replaceManifest(); err != nil {
+		return err
+	}
+
+	if err := syncDirectory(); err != nil {
+		return err
+	}
+
+	m.sstables = sstables
 	return nil
 }
 

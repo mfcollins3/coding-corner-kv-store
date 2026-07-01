@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"os"
 	"path"
 	"testing"
@@ -77,21 +78,25 @@ func TestReplayWriteAheadLog(t *testing.T) {
 			Operation: operationPut.String(),
 			Key:       "fruit",
 			Value:     "apple",
+			Checksum:  crc32.ChecksumIEEE([]byte("put,fruit,apple")),
 		},
 		{
 			Operation: operationPut.String(),
 			Key:       "model",
 			Value:     "ferrari",
+			Checksum:  crc32.ChecksumIEEE([]byte("put,model,ferrari")),
 		},
 		{
 			Operation: operationPut.String(),
 			Key:       "dog",
 			Value:     "bella",
+			Checksum:  crc32.ChecksumIEEE([]byte("put,dog,bella")),
 		},
 		{
 			Operation: operationPut.String(),
 			Key:       "child",
 			Value:     "alexandra",
+			Checksum:  crc32.ChecksumIEEE([]byte("put,child,alexandra")),
 		},
 	}
 	writeSampleData := func(filename string) {
@@ -225,6 +230,58 @@ func TestReplayWriteAheadLog(t *testing.T) {
 			err := replayWriteAheadLog(filename, mt)
 			assert.Error(t, err)
 			assert.ErrorContains(t, err, "error unmarshalling line")
+		},
+	)
+
+	t.Run(
+		"it stops if a checksum mismatch occurs",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			filename := path.Join(tempDir, "wal.db")
+			entries := []logEntry{
+				{
+					Operation: operationPut.String(),
+					Key:       "fruit",
+					Value:     "apple",
+					Checksum:  crc32.ChecksumIEEE([]byte("put,fruit,apple")),
+				},
+				{
+					Operation: operationPut.String(),
+					Key:       "model",
+					Value:     "ferrari",
+					Checksum:  crc32.ChecksumIEEE([]byte("put,model,ferrari")),
+				},
+				{
+					Operation: operationPut.String(),
+					Key:       "dog",
+					Value:     "bella",
+					Checksum:  1,
+				},
+				{
+					Operation: operationPut.String(),
+					Key:       "child",
+					Value:     "alexandra",
+					Checksum:  crc32.ChecksumIEEE([]byte("put,child,alexandra")),
+				},
+			}
+			{
+				file, err := os.Create(filename)
+				assert.NoError(t, err)
+				defer func() {
+					_ = file.Close()
+				}()
+				encoder := json.NewEncoder(file)
+				for _, entry := range entries {
+					err := encoder.Encode(entry)
+					assert.NoError(t, err)
+				}
+			}
+
+			mt := newMemtable()
+			err := replayWriteAheadLog(filename, mt)
+			
+			assert.NoError(t, err)
+			assert.Equal(t, 2, mt.len())
 		},
 	)
 }

@@ -25,7 +25,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"io"
+	"log"
 	"os"
 )
 
@@ -43,6 +45,7 @@ type logEntry struct {
 	Operation string `json:"op"`
 	Key       string `json:"key"`
 	Value     string `json:"value"`
+	Checksum  uint32 `json:"crc32"`
 }
 
 type writeAheadLog struct {
@@ -104,6 +107,22 @@ func replayWriteAheadLog(path string, memtable memtable) error {
 			)
 		}
 
+		checksum := crc32.ChecksumIEEE([]byte(fmt.Sprintf(
+			"%s,%s,%s",
+			entry.Operation,
+			entry.Key,
+			entry.Value,
+		)))
+		if checksum != entry.Checksum {
+			log.Printf(
+				"checksum mismatch for line %d in WAL; expected %d, got %d",
+				count,
+				entry.Checksum,
+				checksum,
+			)
+			break
+		}
+
 		memtable.set(entry.Key, entry.Value)
 	}
 
@@ -126,9 +145,15 @@ func (wal *writeAheadLog) log(
 	value string,
 ) error {
 	entry := logEntry{
-		Operation: string(op),
+		Operation: op.String(),
 		Key:       key,
 		Value:     value,
+		Checksum: crc32.ChecksumIEEE([]byte(fmt.Sprintf(
+			"%s,%s,%s",
+			op.String(),
+			key,
+			value,
+		))),
 	}
 	b, err := marshalJSON(entry)
 	if err != nil {

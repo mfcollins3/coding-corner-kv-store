@@ -559,15 +559,11 @@ func TestClearDanglingSSTables(t *testing.T) {
 		"it returns an error if the directory cannot be synced",
 		func(t *testing.T) {
 			tempDir := t.TempDir()
-			orig := syncFile
-			t.Cleanup(func() { syncFile = orig })
+			orig := syncDir
+			t.Cleanup(func() { syncDir = orig })
 			injectedError := errors.New("injected error")
-			syncFile = func(f *os.File) error {
-				if f.Name() == tempDir {
-					return injectedError
-				}
-
-				return orig(f)
+			syncDir = func(f *os.File) error {
+				return injectedError
 			}
 			createFile(path.Join(tempDir, "sst-1.json"))
 			createFile(path.Join(tempDir, "sst-2.json"))

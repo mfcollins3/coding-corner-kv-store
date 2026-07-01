@@ -179,7 +179,7 @@ func (m *manifest) addSSTable(filename string) error {
 			_ = dir.Close()
 		}()
 
-		if err := syncFile(dir); err != nil {
+		if err := syncDir(dir); err != nil {
 			return fmt.Errorf("unable to sync directory: %w", err)
 		}
 

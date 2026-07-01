@@ -1,3 +1,5 @@
+//go:build windows
+
 // Copyright 2026 Michael F. Collins, III
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -20,28 +22,7 @@
 
 package kvstore
 
-import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-)
-
-// These "API wrappers" are used for unit testing and injecting error scenarios
-// for unit tests. Because my implementation makes use of several functions in
-// the Go standard library that are hard to mock out, I have created these API
-// wrapper functions for those standard library functions so that I can change
-// out the implementation in unit tests to validate failure scenarios.
-
-var findFiles = filepath.Glob
-var marshalJSON = json.Marshal
-var openRead = os.Open
-var removeFile = os.Remove
-var renameFile = os.Rename
-var statFile = os.Stat
-var syncDir = func(f *os.File) error { return f.Sync() }
-var truncateFile = func(f *os.File, size int64) error {
-	return f.Truncate(size)
-}
-var writeFile = func(f *os.File, b []byte) (int, error) {
-	return f.Write(b)
+var openFile = os.OpenFile
+var syncFile = func(f *os.File) error {
+	return f.Sync()
 }

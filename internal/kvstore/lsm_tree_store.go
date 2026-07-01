@@ -193,7 +193,7 @@ func clearDanglingSSTables(dir string, ssTables []string) error {
 			_ = directory.Close()
 		}()
 
-		if err := syncFile(directory); err != nil {
+		if err := syncDir(directory); err != nil {
 			return fmt.Errorf("unable to sync directory %s: %w", dir, err)
 		}
 	}

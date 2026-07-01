@@ -233,17 +233,11 @@ func TestSaveSSTable(t *testing.T) {
 		func(t *testing.T) {
 			tempDir := t.TempDir()
 			filename := path.Join(tempDir, "sst-1.json")
-			orig := syncFile
-			t.Cleanup(func() { syncFile = orig })
+			orig := syncDir
+			t.Cleanup(func() { syncDir = orig })
 			injectedError := errors.New("injected error")
-			calls := 0
-			syncFile = func(f *os.File) error {
-				calls++
-				if calls == 2 {
-					return injectedError
-				}
-
-				return orig(f)
+			syncDir = func(f *os.File) error {
+				return injectedError
 			}
 
 			st := newSSTable(newMemtable())

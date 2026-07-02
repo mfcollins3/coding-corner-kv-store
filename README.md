@@ -217,7 +217,6 @@ set grows too big, the key-value pairs are flushed and persisted to disk. If a
 key can't be found in the in-memory store, then the SSTables are searched from 
 newest to oldest until the key is found. The following features are coming soon:
 
-- [ ] [Durability with Write-Ahead Logging](https://read.thecoder.cafe/p/build-your-own-kv-engine-3)
 - [ ] [Deletes, Tombstones, and Compaction](https://read.thecoder.cafe/p/build-your-own-kv-engine-4)
 - [ ] [Leveling and Key-Range Partitioning](https://read.thecoder.cafe/p/build-your-own-kv-engine-5)
 - [ ] [Block-Based SSTables and Indexing](https://read.thecoder.cafe/p/build-your-own-kv-engine-6)

@@ -26,6 +26,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"runtime"
@@ -104,7 +105,7 @@ func main() {
 	kvMux.Handle("GET /{key}", api.GetValue(store))
 	kvMux.Handle("PUT /{key}", api.SetValue(store))
 
-	mux := http.NewServeMux()
+	mux := http.DefaultServeMux
 	mux.Handle("GET /metrics", api.GetMetrics(histogram))
 	mux.Handle("/kv/", http.StripPrefix("/kv", latency(singleThreaded(kvMux))))
 
@@ -113,7 +114,7 @@ func main() {
 		BaseContext: func(_ net.Listener) context.Context {
 			return ctx
 		},
-		Handler: mux,
+		Handler: nil,
 	}
 	srvErr := make(chan error, 1)
 	go func() {

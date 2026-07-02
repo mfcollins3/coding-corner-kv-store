@@ -6,6 +6,7 @@
 
 1. [Week 1: In-Memory Store](https://github.com/mfcollins3/coding-corner-kv-store/tree/week-1)
 2. [Week 2: LSM Tree Foundations](https://github.com/mfcollins3/coding-corner-kv-store/tree/week-2)
+3. [Week 3: Durability with Write-Ahead Logging](https://github.com/mfcollins3/coding-corner-kv-store/tree/week-3)
 
 ## Table of Contents
 
@@ -39,12 +40,14 @@ additional requirements on the HTTP APIs.
 
 ## Features
 
-| Feature                     | Description                                                                                                                                                                           |
-|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Efficient Memory Management | The engine stores key-value pairs in memory for fast access. When the in-memory store grows to a specific size, the key-value pairs are written to a sorted-string table (SSTable) file on disk. |
-| Persistence                 | Key-value pairs are persisted to disk in a sorted-string table (SSTable) file. If the key is not found in memory, the SSTable files are searched in reverse order (newest to oldest) to find the key-value pair. |
-| Single Threaded             | The engine protects against dirty reads and writes by using a mutex to allow concurrent reads and exclusive writes.                                                                   |
-| Metrics                     | The engine exposes P50, P95, and P99 latency metrics for key-value storage engine requests via the `/metrics` endpoint.                                                               |
+| Feature                     | Description                                                                                                                                                                                                                                                                                          |
+|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Efficient Memory Management | The engine stores key-value pairs in memory for fast access. When the in-memory store grows to a specific size, the key-value pairs are written to a sorted-string table (SSTable) file on disk.                                                                                                     |
+| Persistence                 | Key-value pairs are persisted to disk in a sorted-string table (SSTable) file. If the key is not found in memory, the SSTable files are searched in reverse order (newest to oldest) to find the key-value pair.                                                                                     |
+| Durability                  | The engine uses a write-ahead log (WAL) to ensure that key-value pairs are not lost in the event of a crash or power failure. The WAL is written to disk before the key-value pair is added to the in-memory store. The WAL is read on startup to restore the in-memory store to its previous state. |
+| Single Threaded             | The engine protects against dirty reads and writes by using a mutex to allow concurrent reads and exclusive writes.                                                                                                                                                                                  |
+| Metrics                     | The engine exposes P50, P95, and P99 latency metrics for key-value storage engine requests via the `/metrics` endpoint.                                                                                                                                                                              |
+| Profiling                   | The engine can be profiled for CPU and memory usage using `pprof`. See the [Configuration](#configuration) section for more information. The `/debug/pprof` endpoint is also supported for live profiling.                                                                                           |
 
 ## Tech Stack
 
@@ -63,32 +66,37 @@ additional requirements on the HTTP APIs.
 
 ```plain
 kvstore/
-|-- assets/                 # Contains assets such as diagrams and pictures for the README.md document and other documents
-|-- cmd/                    # Contains the executable programs for this project
-    |-- client/             # Contains the client program that is used to test the key-value storage engine
-    |-- gen/                # Contains the test data generator program that is used to create test data for the client program to send to the key-value storage engine
-    |-- server/             # Contains the server program that hosts the key-value storage engine's API as REST endpoints
-|-- internal/               # Contains the implementation of the key-value storage engine
-    |-- api/                # Contains the HTTP handlers that implement the REST APIs for the key-value storage engine
-        get_metrics.go      # Implements the GET /metrics endpoint that returns latency metrics for the key-value storage engine
-        get_value.go        # Implements the GET /kv/{key} endpoint that returns the value for a given key
-        set_value.go        # Implements the POST /kv/{key} endpoint that sets the value for a given key
-    |-- kvstore/            # Contains the implementation of the key-value storage engine
-        api_injectors.go    # Implements variables that reference standard library functions that need to be replaced for testing purposes (e.g., os.OpenFile can be replaced to simulate errors for testing)
-        lsm_tree_store.go   # Implements the LSM tree key-value storage engine
-        manifest.go         # Reads and writes the MANIFEST file that contains the list of SSTable files
-        memtable.go         # Implements the in-memory key-value store
-        sstable.go          # Implements the sorted-string table (SSTable) file format for persisting key-value pairs to disk or searching an SSTable file for a key-value pair
-        store.go            # Defines the interface for the key-value storage engine
-    |-- metrics/            # Contains the implementation of the latency metrics for the key-value storage engine
-        histogram.go        # Implements a histogram to track latency metrics for the key-value storage engine
-        percentiles.go      # DTO for returning the latency percentiles for the key-value storage engine
-|-- .gitattributes          # Git attributes file to define how Git should handle certain files in the repository
-|-- .gitignore              # Git ignore file to define which files and directories should be ignored by Git
-|-- go.mod                  # Go module file to define the module path and dependencies for the project
-|-- go.sum                  # Go checksum file to define the checksums for the dependencies used in the project
-|-- LICENSE.md              # License file for the project, which defines the terms under which the project can be used, modified, and distributed
-|-- README.md               # This file, which provides an overview of the project, its features, architecture, and project structure
+|-- assets/                         # Contains assets such as diagrams and pictures for the README.md document and other documents
+|-- cmd/                            # Contains the executable programs for this project
+    |-- client/                     # Contains the client program that is used to test the key-value storage engine
+    |-- gen/                        # Contains the test data generator program that is used to create test data for the client program to send to the key-value storage engine
+    |-- server/                     # Contains the server program that hosts the key-value storage engine's API as REST endpoints
+|-- internal/                       # Contains the implementation of the key-value storage engine
+    |-- api/                        # Contains the HTTP handlers that implement the REST APIs for the key-value storage engine
+        |-- get_metrics.go          # Implements the GET /metrics endpoint that returns latency metrics for the key-value storage engine
+        |-- get_value.go            # Implements the GET /kv/{key} endpoint that returns the value for a given key
+        |-- set_value.go            # Implements the POST /kv/{key} endpoint that sets the value for a given key
+    |-- kvstore/                    # Contains the implementation of the key-value storage engine
+        |-- api_wrappers.go         # Implements variables that reference standard library functions that need to be replaced for testing purposes (e.g., os.OpenFile can be replaced to simulate errors for testing)
+        |-- api_wrappers_unix.go    # Implementation of some API wrappers for Linux and Apple macOS.
+        |-- api_wrappers_windows.go # Windows-specific implementation of some API wrappers.
+        |-- lsm_tree_store.go       # Implements the LSM tree key-value storage engine
+        |-- manifest.go             # Reads and writes the MANIFEST file that contains the list of SSTable files
+        |-- memtable.go             # Implements the in-memory key-value store
+        |-- sstable.go              # Implements the sorted-string table (SSTable) file format for persisting key-value pairs to disk or searching an SSTable file for a key-value pair
+        |-- store.go                # Defines the interface for the key-value storage engine
+        |-- write_ahead_log.go      # Implements the write-ahead log (WAL) for the key-value storage engine to protect against data loss in the event of a crash or power failure
+    |-- metrics/                    # Contains the implementation of the latency metrics for the key-value storage engine
+        |-- histogram.go            # Implements a histogram to track latency metrics for the key-value storage engine
+        |-- percentiles.go          # DTO for returning the latency percentiles for the key-value storage engine
+|-- scripts/                        # Contains helpful scripts for working with the key-value storage engine
+    |-- reset.sh                    # Deletes the files created by the key-value storage engine between test runs
+|-- .gitattributes                  # Git attributes file to define how Git should handle certain files in the repository
+|-- .gitignore                      # Git ignore file to define which files and directories should be ignored by Git
+|-- go.mod                          # Go module file to define the module path and dependencies for the project
+|-- go.sum                          # Go checksum file to define the checksums for the dependencies used in the project
+|-- LICENSE.md                      # License file for the project, which defines the terms under which the project can be used, modified, and distributed
+|-- README.md                       # This file, which provides an overview of the project, its features, architecture, and project structure
 ```
 
 ## Getting Started
@@ -170,8 +178,19 @@ curl http://localhost:8080/metrics
 
 ## Configuration
 
-No configuration is required to run the key-value storage engine. The server
-will start listening for requests on port 8080 by default.
+### Server
+
+- The server will listen for incoming requests on port `8080`. This is not
+  currently configurable.
+
+#### Arguments
+
+**Usage**: `go run ./cmd/server [arguments]`
+
+- `-cpuprofile=<file>`: Write CPU profile to the specified file. This is useful for profiling the performance of the 
+  key-value storage engine server.
+- `-memprofile=<file>`: Write memory profile to the specified file. This is useful for profiling the memory usage of the 
+  key-value storage engine server.
 
 ## Security
 

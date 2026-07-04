@@ -102,6 +102,7 @@ func main() {
 	}()
 
 	kvMux := http.NewServeMux()
+	kvMux.Handle("DELETE /{key}", api.DeleteValue(store))
 	kvMux.Handle("GET /{key}", api.GetValue(store))
 	kvMux.Handle("PUT /{key}", api.SetValue(store))
 

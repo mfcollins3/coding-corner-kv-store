@@ -252,18 +252,25 @@ func TestSSTableGet(t *testing.T) {
 	mt := newMemtable()
 	mt.set("hello", "world")
 	mt.set("goodbye", "world")
+	mt.delete("goodbye")
 	sst := newSSTable(mt)
 
 	t.Run("it returns the sstable value", func(t *testing.T) {
-		value, ok := sst.Get("hello")
+		value, err := sst.Get("hello")
 
-		assert.True(t, ok)
+		assert.NoError(t, err)
 		assert.Equal(t, value, "world")
 	})
 
-	t.Run("it returns false if the value is not found", func(t *testing.T) {
-		_, ok := sst.Get("oy")
+	t.Run("it returns an error if the value is not found", func(t *testing.T) {
+		_, err := sst.Get("oy")
 
-		assert.False(t, ok)
+		assert.ErrorIs(t, err, ErrKeyNotFound)
+	})
+
+	t.Run("it returns an error if the key was deleted", func(t *testing.T) {
+		_, err := sst.Get("goodbye")
+
+		assert.ErrorIs(t, err, ErrKeyDeleted)
 	})
 }

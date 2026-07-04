@@ -87,10 +87,10 @@ func TestReplayWriteAheadLog(t *testing.T) {
 			Checksum:  crc32.ChecksumIEEE([]byte("put,model,ferrari")),
 		},
 		{
-			Operation: operationPut.String(),
+			Operation: operationDelete.String(),
 			Key:       "dog",
-			Value:     "bella",
-			Checksum:  crc32.ChecksumIEEE([]byte("put,dog,bella")),
+			Value:     "",
+			Checksum:  crc32.ChecksumIEEE([]byte("delete,dog,")),
 		},
 		{
 			Operation: operationPut.String(),
@@ -121,8 +121,15 @@ func TestReplayWriteAheadLog(t *testing.T) {
 		assert.NoError(t, replayWriteAheadLog(filename, mt))
 		assert.Equal(t, len(entries), mt.len())
 		for _, entry := range entries {
-			value, ok := mt.get(entry.Key)
-			assert.True(t, ok)
+			value, err := mt.get(entry.Key)
+			switch entry.Operation {
+			case operationPut.String():
+				assert.NoError(t, err)
+
+			case operationDelete.String():
+				assert.ErrorIs(t, err, ErrKeyDeleted)
+			}
+			
 			assert.Equal(t, entry.Value, value)
 		}
 	})
@@ -279,7 +286,7 @@ func TestReplayWriteAheadLog(t *testing.T) {
 
 			mt := newMemtable()
 			err := replayWriteAheadLog(filename, mt)
-			
+
 			assert.NoError(t, err)
 			assert.Equal(t, 2, mt.len())
 		},
@@ -304,8 +311,8 @@ func TestWALLog(t *testing.T) {
 		mt := newMemtable()
 		assert.NoError(t, replayWriteAheadLog(filename, mt))
 		assert.Equal(t, 3, mt.len())
-		value, ok := mt.get("fruit")
-		assert.True(t, ok)
+		value, err := mt.get("fruit")
+		assert.NoError(t, err)
 		assert.Equal(t, "apple", value)
 	})
 

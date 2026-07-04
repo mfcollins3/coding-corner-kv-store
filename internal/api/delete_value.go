@@ -18,30 +18,26 @@
 // FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 // DEALINGS IN THE SOFTWARE.
 
-package api_test
+package api
 
-import "github.com/stretchr/testify/mock"
+import (
+	"net/http"
 
-type mockStore struct {
-	mock.Mock
-}
+	"go.michaelfcollins3.dev/kvstore/internal/kvstore"
+)
 
-func (s *mockStore) Close() error {
-	args := s.Called()
-	return args.Error(0)
-}
+func DeleteValue(store kvstore.Store) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.PathValue("key")
+		if err := store.Delete(key); err != nil {
+			http.Error(
+				w,
+				http.StatusText(http.StatusInternalServerError),
+				http.StatusInternalServerError,
+			)
+			return
+		}
 
-func (s *mockStore) Delete(key string) error {
-	args := s.Called(key)
-	return args.Error(0)
-}
-
-func (s *mockStore) Get(key string) (string, error) {
-	args := s.Called(key)
-	return args.String(0), args.Error(1)
-}
-
-func (s *mockStore) Set(key, value string) error {
-	args := s.Called(key, value)
-	return args.Error(0)
+		w.WriteHeader(http.StatusNoContent)
+	})
 }

@@ -21,6 +21,7 @@
 *.prof
 MANIFEST
 put.txt
+put-delete.txt
 server
 sst-*.json
 wal.db

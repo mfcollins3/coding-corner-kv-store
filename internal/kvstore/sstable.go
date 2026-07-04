@@ -29,8 +29,9 @@ import (
 )
 
 type sstableEntry struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Key     string `json:"key"`
+	Value   string `json:"value,omitempty"`
+	Deleted bool   `json:"deleted,omitzero"`
 }
 
 type sstable []sstableEntry
@@ -40,8 +41,9 @@ func newSSTable(mt memtable) sstable {
 	i := 0
 	for k, v := range mt {
 		sst[i] = sstableEntry{
-			Key:   k,
-			Value: v,
+			Key:     k,
+			Value:   v.value,
+			Deleted: v.deleted,
 		}
 		i++
 	}
@@ -133,12 +135,16 @@ func (s sstable) Save(filename string) error {
 	return nil
 }
 
-func (s sstable) Get(key string) (string, bool) {
+func (s sstable) Get(key string) (string, error) {
 	for _, entry := range s {
 		if entry.Key == key {
-			return entry.Value, true
+			if entry.Deleted {
+				return "", ErrKeyDeleted
+			}
+
+			return entry.Value, nil
 		}
 	}
 
-	return "", false
+	return "", ErrKeyNotFound
 }

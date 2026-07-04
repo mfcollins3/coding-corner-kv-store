@@ -35,9 +35,14 @@ import (
 func main() {
 	client := http.DefaultClient
 
-	file, err := os.Open("put.txt")
+	inputFilename := "put.txt"
+	if len(os.Args) > 1 {
+		inputFilename = os.Args[1]
+	}
+
+	file, err := os.Open(inputFilename)
 	if err != nil {
-		log.Fatal("failed to open put.txt:", err)
+		log.Fatalf("failed to open %s: %v", inputFilename, err)
 	}
 
 	defer func() {
@@ -58,16 +63,25 @@ func main() {
 		}
 
 		parts := strings.Split(strings.Trim(line, "\n"), " ")
-		if len(parts) < 3 {
+		if len(parts) < 2 {
 			panic(fmt.Errorf("invalid line: %s", line))
 		}
 
 		method := parts[0]
 		key := parts[1]
-		value := strings.Join(parts[2:], " ")
+		var value string
+		if len(parts) > 2 {
+			value = strings.Join(parts[2:], " ")
+		}
+
 		count++
 		fmt.Printf("\r%d", count)
 		switch method {
+		case "DELETE":
+			if err := deleteKey(ctx, client, key); err != nil {
+				log.Fatal("failed to DELETE:", err)
+			}
+
 		case "PUT":
 			if err := put(ctx, client, key, value); err != nil {
 				log.Fatal("failed to PUT:", err)
@@ -109,6 +123,33 @@ func put(
 
 	if resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func deleteKey(ctx context.Context, client *http.Client, key string) error {
+	req, err := http.NewRequest(
+		http.MethodDelete,
+		fmt.Sprintf("http://localhost:8080/kv/%s", key),
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	ctxReq := req.WithContext(ctx)
+	resp, err := client.Do(ctxReq)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("uxpected status code: %d", resp.StatusCode)
 	}
 
 	return nil

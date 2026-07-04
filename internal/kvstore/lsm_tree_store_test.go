@@ -319,6 +319,45 @@ func TestLSMTreeStoreGet(t *testing.T) {
 			assert.True(t, ok)
 		},
 	)
+
+	t.Run("it returns an error if the key was deleted", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+
+		err = store.Delete("hello")
+		assert.NoError(t, err)
+		_, err = store.Get("hello")
+
+		assert.ErrorIs(t, err, ErrKeyDeleted)
+	})
+
+	t.Run(
+		"it returns an error if the key is deleted in an SSTable",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
+
+			assert.NoError(t, store.Delete("hello"))
+			for i := range maxMemtableEntries + 100 {
+				assert.NoError(
+					t,
+					store.Set(fmt.Sprintf("key%d", i), strconv.Itoa(i)),
+				)
+			}
+
+			_, err = store.Get("hello")
+
+			assert.ErrorIs(t, err, ErrKeyDeleted)
+		},
+	)
 }
 
 func TestLSMTreeStoreSet(t *testing.T) {
@@ -332,8 +371,8 @@ func TestLSMTreeStoreSet(t *testing.T) {
 
 		err = store.Set("test", "passed")
 		assert.NoError(t, err)
-		val, ok := store.mt["test"]
-		assert.True(t, ok)
+		val, err := store.mt.get("test")
+		assert.NoError(t, err)
 		assert.Equal(t, "passed", val)
 	})
 
@@ -572,6 +611,75 @@ func TestClearDanglingSSTables(t *testing.T) {
 
 			assert.ErrorIs(t, err, injectedError)
 			assert.ErrorContains(t, err, "unable to sync directory")
+		},
+	)
+}
+
+func TestLSMDelete(t *testing.T) {
+	t.Run("it succeeds", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+
+		err = store.Delete("hello")
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("it returns an error if the WAL log fails", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+		injectedError := errors.New("injected error")
+		orig := syncFile
+		t.Cleanup(func() { syncFile = orig })
+		syncFile = func(f *os.File) error {
+			if f == store.wal.file {
+				return injectedError
+			}
+
+			return orig(f)
+		}
+
+		err = store.Delete("hello")
+
+		assert.ErrorIs(t, err, injectedError)
+		assert.ErrorContains(t, err, "unable to write key hello to the log")
+	})
+
+	t.Run(
+		"it returns an error if flushing the memtable fails",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+			defer func() { _ = store.Close() }()
+
+			for i := range maxMemtableEntries - 1 {
+				store.mt.set(fmt.Sprintf("key-%d", i), "v")
+			}
+
+			injectedError := errors.New("injected error")
+			orig := openFile
+			t.Cleanup(func() { openFile = orig })
+			openFile = func(
+				name string,
+				flag int,
+				perm os.FileMode,
+			) (*os.File, error) {
+				return nil, injectedError
+			}
+
+			err = store.Delete("hello")
+
+			assert.ErrorIs(t, err, injectedError)
+			assert.ErrorContains(t, err, "failed to flush the memtable")
 		},
 	)
 }

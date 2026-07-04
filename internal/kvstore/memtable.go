@@ -20,19 +20,35 @@
 
 package kvstore
 
-type memtable map[string]string
+type memtableEntry struct {
+	value   string
+	deleted bool
+}
+
+type memtable map[string]memtableEntry
 
 func newMemtable() memtable {
 	return memtable{}
 }
 
-func (s memtable) get(key string) (value string, ok bool) {
-	value, ok = s[key]
-	return
+func (s memtable) delete(key string) {
+	s[key] = memtableEntry{value: "", deleted: true}
+}
+
+func (s memtable) get(key string) (string, error) {
+	if entry, ok := s[key]; ok {
+		if entry.deleted {
+			return "", ErrKeyDeleted
+		}
+
+		return entry.value, nil
+	}
+
+	return "", ErrKeyNotFound
 }
 
 func (s memtable) set(key, value string) {
-	s[key] = value
+	s[key] = memtableEntry{value: value, deleted: false}
 }
 
 func (s memtable) len() int {

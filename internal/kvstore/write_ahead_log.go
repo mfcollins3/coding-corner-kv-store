@@ -38,13 +38,14 @@ func (op operation) String() string {
 }
 
 const (
-	operationPut operation = "put"
+	operationDelete operation = "delete"
+	operationPut    operation = "put"
 )
 
 type logEntry struct {
 	Operation string `json:"op"`
 	Key       string `json:"key"`
-	Value     string `json:"value"`
+	Value     string `json:"value,omitempty"`
 	Checksum  uint32 `json:"crc32"`
 }
 
@@ -92,11 +93,11 @@ func replayWriteAheadLog(path string, memtable memtable) error {
 	}()
 
 	scanner := bufio.NewScanner(file)
-	var entry logEntry
 	count := 0
 	for scanner.Scan() {
 		line := scanner.Text()
 		count++
+		var entry logEntry
 		err := json.Unmarshal([]byte(line), &entry)
 		if err != nil {
 			return fmt.Errorf(
@@ -107,12 +108,13 @@ func replayWriteAheadLog(path string, memtable memtable) error {
 			)
 		}
 
-		checksum := crc32.ChecksumIEEE([]byte(fmt.Sprintf(
+		data := fmt.Sprintf(
 			"%s,%s,%s",
 			entry.Operation,
 			entry.Key,
 			entry.Value,
-		)))
+		)
+		checksum := crc32.ChecksumIEEE([]byte(data))
 		if checksum != entry.Checksum {
 			log.Printf(
 				"checksum mismatch for line %d in WAL; expected %d, got %d",
@@ -123,7 +125,13 @@ func replayWriteAheadLog(path string, memtable memtable) error {
 			break
 		}
 
-		memtable.set(entry.Key, entry.Value)
+		switch entry.Operation {
+		case operationDelete.String():
+			memtable.delete(entry.Key)
+
+		case operationPut.String():
+			memtable.set(entry.Key, entry.Value)
+		}
 	}
 
 	if err := scanner.Err(); err != nil {

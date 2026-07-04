@@ -32,8 +32,8 @@ func TestMemtableSet(t *testing.T) {
 
 		mt.set("hello", "world")
 
-		value, ok := mt["hello"]
-		assert.True(t, ok, "the key was not found")
+		value, err := mt.get("hello")
+		assert.NoError(t, err, "the key was not found")
 		assert.Equal(t, "world", value, "the value was not expected")
 	})
 
@@ -43,8 +43,8 @@ func TestMemtableSet(t *testing.T) {
 		mt.set("foo", "bar")
 		mt.set("foo", "baz")
 
-		value, ok := mt["foo"]
-		assert.True(t, ok, "the key was not found")
+		value, err := mt.get("foo")
+		assert.NoError(t, err, "the key was not found")
 		assert.Equal(t, "baz", value, "the value was not expected")
 	})
 }
@@ -54,18 +54,27 @@ func TestMemtableGet(t *testing.T) {
 		mt := newMemtable()
 		mt.set("hello", "world")
 
-		value, ok := mt.get("hello")
+		value, err := mt.get("hello")
 
-		assert.True(t, ok, "the key was not found")
+		assert.NoError(t, err, "the key was not found")
 		assert.Equal(t, "world", value, "the value was not expected")
 	})
 
-	t.Run("it returns false if the key is not found", func(t *testing.T) {
+	t.Run("it returns an error if the key is not found", func(t *testing.T) {
 		mt := newMemtable()
 
-		_, ok := mt.get("hello")
+		_, err := mt.get("hello")
 
-		assert.False(t, ok, "the key was found")
+		assert.ErrorIs(t, err, ErrKeyNotFound, "the key was found")
+	})
+
+	t.Run("it returns an error if the key was deleted", func(t *testing.T) {
+		mt := newMemtable()
+
+		mt.delete("hello")
+		_, err := mt.get("hello")
+
+		assert.ErrorIs(t, err, ErrKeyDeleted)
 	})
 }
 
@@ -79,5 +88,18 @@ func TestMemtableClear(t *testing.T) {
 		mt.clear()
 
 		assert.Empty(t, mt)
+	})
+}
+
+func TestMemtableDelete(t *testing.T) {
+	t.Run("it inserts a tombstone into the store", func(t *testing.T) {
+		mt := newMemtable()
+
+		mt.delete("hello")
+
+		entry, ok := mt["hello"]
+		assert.True(t, ok, "the key was not found")
+		assert.True(t, entry.deleted, "the entry was not deleted")
+		assert.Equal(t, "", entry.value, "the value was not expected")
 	})
 }

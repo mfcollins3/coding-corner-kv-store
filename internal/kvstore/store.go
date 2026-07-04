@@ -25,11 +25,13 @@ import (
 	"io"
 )
 
+var ErrKeyDeleted = errors.New("key is deleted")
 var ErrKeyNotFound = errors.New("key not found")
 
 type Store interface {
 	io.Closer
 
+	Delete(key string) error
 	Get(key string) (string, error)
 	Set(key, value string) error
 }

@@ -89,14 +89,35 @@ func (s *lsmTreeStore) Close() error {
 	return s.wal.Close()
 }
 
+func (s *lsmTreeStore) Delete(key string) error {
+	if err := s.wal.log(operationDelete, key, ""); err != nil {
+		return fmt.Errorf("unable to write key %s to the log: %w", key, err)
+	}
+
+	s.mt.delete(key)
+	delete(s.negativeCache, key)
+	if err := s.flush(); err != nil {
+		return fmt.Errorf("failed to flush the memtable: %w", err)
+	}
+
+	return nil
+}
+
 func (s *lsmTreeStore) Get(key string) (string, error) {
 	if _, ok := s.negativeCache[key]; ok {
 		return "", fmt.Errorf("key %s not found: %w", key, ErrKeyNotFound)
 	}
 
-	value, ok := s.mt[key]
-	if ok {
-		return value, nil
+	value, err := s.mt.get(key)
+	switch {
+	case errors.Is(err, ErrKeyDeleted):
+		return "", fmt.Errorf("key %s was deleted: %w", key, ErrKeyDeleted)
+
+	case errors.Is(err, ErrKeyNotFound):
+		break
+
+	default:
+		return value, err
 	}
 
 	sstables := s.manifest.getSSTables()
@@ -107,9 +128,16 @@ func (s *lsmTreeStore) Get(key string) (string, error) {
 			return "", fmt.Errorf("unable to load sstable: %w", err)
 		}
 
-		value, ok = sstable.Get(key)
-		if ok {
-			return value, nil
+		value, err = sstable.Get(key)
+		switch {
+		case errors.Is(err, ErrKeyDeleted):
+			return "", fmt.Errorf("key %s was deleted: %w", key, ErrKeyDeleted)
+
+		case errors.Is(err, ErrKeyNotFound):
+			continue
+
+		default:
+			return value, err
 		}
 	}
 
@@ -124,10 +152,6 @@ func (s *lsmTreeStore) Set(key, value string) error {
 
 	s.mt.set(key, value)
 	delete(s.negativeCache, key)
-	if s.mt.len() < maxMemtableEntries {
-		return nil
-	}
-
 	if err := s.flush(); err != nil {
 		return fmt.Errorf("failed to flush the memtable: %w", err)
 	}
@@ -136,6 +160,10 @@ func (s *lsmTreeStore) Set(key, value string) error {
 }
 
 func (s *lsmTreeStore) flush() error {
+	if s.mt.len() < maxMemtableEntries {
+		return nil
+	}
+
 	sst := newSSTable(s.mt)
 	filename := s.manifest.nextSSTableFilename()
 	if err := sst.Save(filename); err != nil {

@@ -7,6 +7,7 @@
 1. [Week 1: In-Memory Store](https://github.com/mfcollins3/coding-corner-kv-store/tree/week-1)
 2. [Week 2: LSM Tree Foundations](https://github.com/mfcollins3/coding-corner-kv-store/tree/week-2)
 3. [Week 3: Durability with Write-Ahead Logging](https://github.com/mfcollins3/coding-corner-kv-store/tree/week-3)
+4. [Week 4: Deletes, Tombstones, and Compaction](https://github.com/mfcollins3/coding-corner-kv-store/tree/week-4)
 
 ## Table of Contents
 
@@ -40,14 +41,16 @@ additional requirements on the HTTP APIs.
 
 ## Features
 
-| Feature                     | Description                                                                                                                                                                                                                                                                                          |
-|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Efficient Memory Management | The engine stores key-value pairs in memory for fast access. When the in-memory store grows to a specific size, the key-value pairs are written to a sorted-string table (SSTable) file on disk.                                                                                                     |
-| Persistence                 | Key-value pairs are persisted to disk in a sorted-string table (SSTable) file. If the key is not found in memory, the SSTable files are searched in reverse order (newest to oldest) to find the key-value pair.                                                                                     |
-| Durability                  | The engine uses a write-ahead log (WAL) to ensure that key-value pairs are not lost in the event of a crash or power failure. The WAL is written to disk before the key-value pair is added to the in-memory store. The WAL is read on startup to restore the in-memory store to its previous state. |
-| Single Threaded             | The engine protects against dirty reads and writes by using a mutex to allow concurrent reads and exclusive writes.                                                                                                                                                                                  |
-| Metrics                     | The engine exposes P50, P95, and P99 latency metrics for key-value storage engine requests via the `/metrics` endpoint.                                                                                                                                                                              |
-| Profiling                   | The engine can be profiled for CPU and memory usage using `pprof`. See the [Configuration](#configuration) section for more information. The `/debug/pprof` endpoint is also supported for live profiling.                                                                                           |
+| Feature                     | Description                                                                                                                                                                                                                                                                                                                                                                     |
+|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Efficient Memory Management | The engine stores key-value pairs in memory for fast access. When the in-memory store grows to a specific size, the key-value pairs are written to a sorted-string table (SSTable) file on disk.                                                                                                                                                                                |
+| Persistence                 | Key-value pairs are persisted to disk in a sorted-string table (SSTable) file. If the key is not found in memory, the SSTable files are searched in reverse order (newest to oldest) to find the key-value pair.                                                                                                                                                                |
+| Durability                  | The engine uses a write-ahead log (WAL) to ensure that key-value pairs are not lost in the event of a crash or power failure. The WAL is written to disk before the key-value pair is added to the in-memory store. The WAL is read on startup to restore the in-memory store to its previous state.                                                                            |
+| Deletions                   | The engine supports deletions of key-value pairs. When a key is deleted, a tombostone is written into the in-memory store and write-ahead log (WAL). The tombstone is persisted to disk when the in-memory store is flushed to a sorted-string table (SSTable) file. When searching for a key, if a tombstone is found, the key is considered deleted and will not be returned. |
+| Compaction                  | The engine supports compaction of the sorted-string table (SSTable) files on disk. Compaction merges multiple SSTable files into a single SSTable file, removing deleted keys and reducing the number of SSTable files that need to be searched when looking for a key.                                                                                                         |
+| Single Threaded             | The engine protects against dirty reads and writes by using a mutex to allow concurrent reads and exclusive writes.                                                                                                                                                                                                                                                             |
+| Metrics                     | The engine exposes P50, P95, and P99 latency metrics for key-value storage engine requests via the `/metrics` endpoint.                                                                                                                                                                                                                                                         |
+| Profiling                   | The engine can be profiled for CPU and memory usage using `pprof`. See the [Configuration](#configuration) section for more information. The `/debug/pprof` endpoint is also supported for live profiling.                                                                                                                                                                      |
 
 ## Tech Stack
 
@@ -84,6 +87,8 @@ kvstore/
         |-- manifest.go             # Reads and writes the MANIFEST file that contains the list of SSTable files
         |-- memtable.go             # Implements the in-memory key-value store
         |-- sstable.go              # Implements the sorted-string table (SSTable) file format for persisting key-value pairs to disk or searching an SSTable file for a key-value pair
+        |-- sstable_item_heap.go    # Implements a min-heap used during compaction to merge multiple SSTable files into a single SSTable file
+        |-- sstable_iterator.go     # Implements an iterator for reading key-value pairs from an SSTable file; used for compaction
         |-- store.go                # Defines the interface for the key-value storage engine
         |-- write_ahead_log.go      # Implements the write-ahead log (WAL) for the key-value storage engine to protect against data loss in the event of a crash or power failure
     |-- metrics/                    # Contains the implementation of the latency metrics for the key-value storage engine
@@ -161,7 +166,13 @@ curl -X PUT http://localhost:8080/kv/hello \
 curl http://localhost:8080/kv/hello
 ```
 
-### 7. Start the Key-Value Storage Engine Client
+### 7. Delete a Key from the Key-Value Storage Engine
+
+```shell
+curl -X DELETE http://localhost:8080/kv/hello
+```
+
+### 8. Start the Key-Value Storage Engine Client
 
 In a separate terminal, run the following command to start the client program
 and send the test data to the key-value storage engine server:
@@ -170,7 +181,7 @@ and send the test data to the key-value storage engine server:
 go run ./cmd/client
 ```
 
-### 8. Request the P50, P95, and P99 Latency Metrics
+### 9. Request the P50, P95, and P99 Latency Metrics
 
 ```shell
 curl http://localhost:8080/metrics
@@ -217,7 +228,6 @@ set grows too big, the key-value pairs are flushed and persisted to disk. If a
 key can't be found in the in-memory store, then the SSTables are searched from 
 newest to oldest until the key is found. The following features are coming soon:
 
-- [ ] [Deletes, Tombstones, and Compaction](https://read.thecoder.cafe/p/build-your-own-kv-engine-4)
 - [ ] [Leveling and Key-Range Partitioning](https://read.thecoder.cafe/p/build-your-own-kv-engine-5)
 - [ ] [Block-Based SSTables and Indexing](https://read.thecoder.cafe/p/build-your-own-kv-engine-6)
 - [ ] [Bloom Filter and Trie Memtable](https://read.thecoder.cafe/p/build-your-own-kv-engine-7)

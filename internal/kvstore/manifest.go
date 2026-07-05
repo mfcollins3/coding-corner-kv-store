@@ -116,11 +116,19 @@ func (m *manifest) nextSSTableFilename() string {
 }
 
 func (m *manifest) addSSTable(filename string) error {
+	sstables := append([]string{path.Base(filename)}, m.sstables...)
+	return m.save(sstables)
+}
+
+func (m *manifest) getSSTables() []string {
+	return m.sstables
+}
+
+func (m *manifest) save(sstables []string) error {
 	tempFilename := fmt.Sprintf(
 		"%s.tmp",
 		strings.TrimSuffix(m.filename, path.Ext(m.filename)),
 	)
-	sstables := append([]string{path.Base(filename)}, m.sstables...)
 
 	writeTemporaryManifest := func() error {
 		f, err := openFile(
@@ -200,8 +208,4 @@ func (m *manifest) addSSTable(filename string) error {
 
 	m.sstables = sstables
 	return nil
-}
-
-func (m *manifest) getSSTables() []string {
-	return m.sstables
 }

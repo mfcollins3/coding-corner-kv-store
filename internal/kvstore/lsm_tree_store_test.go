@@ -527,6 +527,42 @@ func TestLSMTreeStoreSet(t *testing.T) {
 			assert.ErrorContains(t, err, "failed to truncate write-ahead log")
 		},
 	)
+
+	t.Run("it fails if a compaction error occurs", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+		orig := openFile
+		t.Cleanup(func() { openFile = orig })
+		injectedError := errors.New("injected error")
+		openFile = func(
+			name string,
+			flag int,
+			perm os.FileMode,
+		) (*os.File, error) {
+			if path.Base(name) == "sst-6.json" {
+				return nil, injectedError
+			}
+
+			return orig(name, flag, perm)
+		}
+		for i := range maxOperations - 1 {
+			err = store.Set(
+				fmt.Sprintf("key-%d", i%(maxOperations/2)),
+				strconv.Itoa(i),
+			)
+			assert.NoError(t, err)
+		}
+
+		x := (maxOperations / 2) - 1
+		err = store.Set(fmt.Sprintf("key-%d", x), strconv.Itoa(x))
+
+		assert.ErrorIs(t, err, injectedError)
+		assert.ErrorContains(t, err, "failed to compact the store")
+	})
 }
 
 func TestClearDanglingSSTables(t *testing.T) {
@@ -680,6 +716,233 @@ func TestLSMDelete(t *testing.T) {
 
 			assert.ErrorIs(t, err, injectedError)
 			assert.ErrorContains(t, err, "failed to flush the memtable")
+		},
+	)
+
+	t.Run("it triggers a compaction", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+		for i := range maxOperations - 1 {
+			err = store.Set(fmt.Sprintf("key-%d", i%(maxOperations/2)), strconv.Itoa(i))
+			assert.NoError(t, err)
+		}
+
+		x := (maxOperations / 2) - 1
+		err = store.Delete(fmt.Sprintf("key-%d", x))
+		assert.NoError(t, err)
+
+		assert.NoFileExists(t, path.Join(tempDir, "sst-1.json"))
+		assert.NoFileExists(t, path.Join(tempDir, "sst-2.json"))
+		assert.NoFileExists(t, path.Join(tempDir, "sst-3.json"))
+		assert.NoFileExists(t, path.Join(tempDir, "sst-4.json"))
+		assert.NoFileExists(t, path.Join(tempDir, "sst-5.json"))
+		assert.FileExists(t, path.Join(tempDir, "sst-6.json"))
+		assert.FileExists(t, path.Join(tempDir, "sst-7.json"))
+		assert.FileExists(t, path.Join(tempDir, "sst-8.json"))
+	})
+
+	t.Run("it fails if a compaction error occurs", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+		orig := openFile
+		t.Cleanup(func() { openFile = orig })
+		injectedError := errors.New("injected error")
+		openFile = func(
+			name string,
+			flag int,
+			perm os.FileMode,
+		) (*os.File, error) {
+			if path.Base(name) == "sst-6.json" {
+				return nil, injectedError
+			}
+
+			return orig(name, flag, perm)
+		}
+		for i := range maxOperations - 1 {
+			err = store.Set(fmt.Sprintf("key-%d", i%(maxOperations/2)), strconv.Itoa(i))
+			assert.NoError(t, err)
+		}
+
+		x := (maxOperations / 2) - 1
+		err = store.Delete(fmt.Sprintf("key-%d", x))
+
+		assert.ErrorIs(t, err, injectedError)
+		assert.ErrorContains(t, err, "failed to compact the store")
+	})
+}
+
+func TestLSMCompact(t *testing.T) {
+	t.Run("it succeeds", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+		for i := range maxOperations - 1 {
+			err = store.Set(
+				fmt.Sprintf("key-%d", i%(maxOperations/2)),
+				strconv.Itoa(i),
+			)
+			assert.NoError(t, err)
+		}
+
+		oldSSTables := store.manifest.getSSTables()
+
+		x := (maxOperations / 2) - 1
+		err = store.Set(fmt.Sprintf("key-%d", x), strconv.Itoa(x))
+
+		assert.NoError(t, err)
+		for _, oldSSTable := range oldSSTables {
+			assert.NotContains(t, store.manifest.sstables, oldSSTable)
+		}
+	})
+
+	t.Run("it fails if an SSTable cannot be opened", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+		orig := openRead
+		t.Cleanup(func() { openRead = orig })
+		injectedError := errors.New("injected error")
+		openRead = func(name string) (*os.File, error) {
+			if path.Base(name) == "sst-5.json" {
+				return nil, injectedError
+			}
+
+			return orig(name)
+		}
+
+		for i := range maxOperations - 1 {
+			err = store.Set(
+				fmt.Sprintf("key-%d", i%(maxOperations/2)),
+				strconv.Itoa(i),
+			)
+			assert.NoError(t, err)
+		}
+
+		x := (maxOperations / 2) - 1
+		err = store.Set(fmt.Sprintf("key-%d", x), strconv.Itoa(x))
+
+		assert.ErrorIs(t, err, injectedError)
+		assert.ErrorContains(t, err, "unable to open sstable")
+	})
+
+	t.Run("it fails if a new SSTable cannot be created", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+		orig := openFile
+		t.Cleanup(func() { openFile = orig })
+		injectedError := errors.New("injected error")
+		openFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+			if path.Base(name) == "sst-8.json" {
+				return nil, injectedError
+			}
+
+			return orig(name, flag, perm)
+		}
+
+		for i := range maxOperations - 1 {
+			err = store.Set(
+				fmt.Sprintf("key-%d", i%(maxOperations/2)),
+				strconv.Itoa(i),
+			)
+			assert.NoError(t, err)
+		}
+
+		x := (maxOperations / 2) - 1
+		err = store.Set(fmt.Sprintf("key-%d", x), strconv.Itoa(x))
+
+		assert.ErrorIs(t, err, injectedError)
+		assert.ErrorContains(t, err, "failed to save compacted sstable")
+	})
+
+	t.Run("it fails if the manifest cannot be updated", func(t *testing.T) {
+		tempDir := t.TempDir()
+		store, err := newLSMTreeStore(tempDir)
+		assert.NoError(t, err)
+		defer func() {
+			_ = store.Close()
+		}()
+		orig := openFile
+		t.Cleanup(func() { openFile = orig })
+		injectedError := errors.New("injected error")
+
+		for i := range maxOperations - 1 {
+			err = store.Set(
+				fmt.Sprintf("key-%d", i%(maxOperations/2)),
+				strconv.Itoa(i),
+			)
+			assert.NoError(t, err)
+		}
+
+		calls := 0
+		openFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+			if path.Base(name) == "MANIFEST.tmp" {
+				calls++
+				if calls == 2 {
+					return nil, injectedError
+				}
+			}
+
+			return orig(name, flag, perm)
+		}
+
+		x := (maxOperations / 2) - 1
+		err = store.Set(fmt.Sprintf("key-%d", x), strconv.Itoa(x))
+
+		assert.ErrorIs(t, err, injectedError)
+		assert.ErrorContains(t, err, "unable to save updated manifest")
+	})
+
+	t.Run(
+		"it fails if the old SSTables cannot be removed",
+		func(t *testing.T) {
+			tempDir := t.TempDir()
+			store, err := newLSMTreeStore(tempDir)
+			assert.NoError(t, err)
+			defer func() {
+				_ = store.Close()
+			}()
+			orig := removeFile
+			t.Cleanup(func() { removeFile = orig })
+			injectedError := errors.New("injected error")
+			removeFile = func(name string) error {
+				if path.Base(name) == "sst-1.json" {
+					return injectedError
+				}
+
+				return orig(name)
+			}
+
+			for i := range maxOperations - 1 {
+				err = store.Set(
+					fmt.Sprintf("key-%d", i%(maxOperations/2)),
+					strconv.Itoa(i),
+				)
+				assert.NoError(t, err)
+			}
+
+			x := (maxOperations / 2) - 1
+			err = store.Set(fmt.Sprintf("key-%d", x), strconv.Itoa(x))
+
+			assert.ErrorIs(t, err, injectedError)
+			assert.ErrorContains(t, err, "unable to remove sstable")
 		},
 	)
 }

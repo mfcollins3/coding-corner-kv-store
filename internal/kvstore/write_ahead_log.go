@@ -76,11 +76,7 @@ func replayWriteAheadLog(path string, memtable memtable) error {
 			return nil
 		}
 
-		return fmt.Errorf(
-			"error checking if file %s exists: %w",
-			path,
-			err,
-		)
+		return fmt.Errorf("error checking if file %s exists: %w", path, err)
 	}
 
 	file, err := openRead(path)

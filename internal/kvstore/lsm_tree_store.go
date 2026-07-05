@@ -21,31 +21,37 @@
 package kvstore
 
 import (
+	"container/heap"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 )
 
 const maxMemtableEntries = 2000
+const maxOperations = 10_000
 
 type lsmTreeStore struct {
 	io.Closer
 
-	mt            memtable
-	path          string
-	manifest      *manifest
-	negativeCache map[string]struct{}
-	wal           *writeAheadLog
+	mt             memtable
+	path           string
+	manifest       *manifest
+	negativeCache  map[string]struct{}
+	wal            *writeAheadLog
+	operationCount int
 }
 
 func newLSMTreeStore(dir string) (*lsmTreeStore, error) {
 	memtable := newMemtable()
 
 	logFilename := path.Join(dir, "wal.db")
-	if err := replayWriteAheadLog(logFilename, memtable); err != nil {
+	err := replayWriteAheadLog(logFilename, memtable)
+	if err != nil {
 		return nil, fmt.Errorf("failed to replay log: %w", err)
 	}
 
@@ -68,13 +74,16 @@ func newLSMTreeStore(dir string) (*lsmTreeStore, error) {
 		)
 	}
 
-	return &lsmTreeStore{
-		mt:            memtable,
-		path:          dir,
-		manifest:      manifest,
-		negativeCache: make(map[string]struct{}),
-		wal:           wal,
-	}, nil
+	store := &lsmTreeStore{
+		mt:             memtable,
+		path:           dir,
+		manifest:       manifest,
+		negativeCache:  make(map[string]struct{}),
+		wal:            wal,
+		operationCount: memtable.len(),
+	}
+
+	return store, nil
 }
 
 func createOrLoadManifest(filename string) (*manifest, error) {
@@ -94,10 +103,16 @@ func (s *lsmTreeStore) Delete(key string) error {
 		return fmt.Errorf("unable to write key %s to the log: %w", key, err)
 	}
 
+	s.operationCount++
+
 	s.mt.delete(key)
 	delete(s.negativeCache, key)
 	if err := s.flush(); err != nil {
 		return fmt.Errorf("failed to flush the memtable: %w", err)
+	}
+
+	if err := s.compact(); err != nil {
+		return fmt.Errorf("failed to compact the store: %w", err)
 	}
 
 	return nil
@@ -150,10 +165,16 @@ func (s *lsmTreeStore) Set(key, value string) error {
 		return fmt.Errorf("unable to write key %s to the log: %w", key, err)
 	}
 
+	s.operationCount++
+
 	s.mt.set(key, value)
 	delete(s.negativeCache, key)
 	if err := s.flush(); err != nil {
 		return fmt.Errorf("failed to flush the memtable: %w", err)
+	}
+
+	if err := s.compact(); err != nil {
+		return fmt.Errorf("failed to compact the store: %w", err)
 	}
 
 	return nil
@@ -166,6 +187,7 @@ func (s *lsmTreeStore) flush() error {
 
 	sst := newSSTable(s.mt)
 	filename := s.manifest.nextSSTableFilename()
+	log.Printf("Flushing memtable entries to %s\n", path.Base(filename))
 	if err := sst.Save(filename); err != nil {
 		return fmt.Errorf("failed to save sst: %w", err)
 	}
@@ -176,14 +198,147 @@ func (s *lsmTreeStore) flush() error {
 
 	s.mt.clear()
 
+	log.Println("Truncating the write-ahead log")
 	if err := s.wal.truncate(); err != nil {
 		return fmt.Errorf("failed to truncate write-ahead log: %w", err)
 	}
 
+	log.Println("Flush complete")
+	return nil
+}
+
+func (s *lsmTreeStore) compact() error {
+	if s.operationCount < maxOperations {
+		return nil
+	}
+
+	log.Println("Compacting the SSTables")
+
+	var newSSTables []string
+
+	sstables := make([]*sstableIterator, len(s.manifest.sstables))
+	for i, filename := range s.manifest.sstables {
+		sstable, err := newSSTableIterator(path.Join(s.path, filename))
+		if err != nil {
+			return fmt.Errorf("unable to open sstable %s: %w", filename, err)
+		}
+
+		sstables[i] = sstable
+	}
+
+	h := sstableItemHeap{}
+	heap.Init(&h)
+	for index, it := range sstables {
+		if item, ok := it.current(); ok {
+			heap.Push(&h, sstableItem{
+				sstableIndex: index,
+				key:          item.Key,
+				value:        item.Value,
+				deleted:      item.Deleted,
+			})
+		}
+	}
+
+	newSSTable := sstable{}
+	for h.Len() > 0 {
+		// Get the smallest key from the heap
+		item := heap.Pop(&h).(sstableItem)
+		if newItem, ok := sstables[item.sstableIndex].next(); ok {
+			heap.Push(&h, sstableItem{
+				sstableIndex: item.sstableIndex,
+				key:          newItem.Key,
+				value:        newItem.Value,
+				deleted:      newItem.Deleted,
+			})
+		}
+
+		// Drain other heap entries with the same key and push their next
+		// key-value pairs onto the heap.
+		if h.Len() > 0 {
+			for item.key == h[0].key {
+				x := heap.Pop(&h).(sstableItem)
+				if newItem, ok := sstables[x.sstableIndex].next(); ok {
+					heap.Push(&h, sstableItem{
+						sstableIndex: x.sstableIndex,
+						key:          newItem.Key,
+						value:        newItem.Value,
+						deleted:      newItem.Deleted,
+					})
+				}
+
+				if h.Len() == 0 {
+					break
+				}
+			}
+		}
+
+		// Dispose the key if it's deleted.
+		if !item.deleted {
+			newSSTable = append(newSSTable, sstableEntry{
+				Key:     item.key,
+				Value:   item.value,
+				Deleted: false,
+			})
+		}
+
+		// SSTables should remain a maximum number of entries. If we hit that
+		// limit, then save the SSTable and start writing a new SSTable.
+		if len(newSSTable) == maxMemtableEntries {
+			filename := s.manifest.nextSSTableFilename()
+			log.Printf("Creating new SSTable %s\n", path.Base(filename))
+			if err := newSSTable.Save(filename); err != nil {
+				return fmt.Errorf(
+					"failed to save compacted sstable %s: %w",
+					filename,
+					err,
+				)
+			}
+
+			newSSTables = append(newSSTables, filename)
+			newSSTable = sstable{}
+		}
+	}
+
+	if len(newSSTable) > 0 {
+		filename := s.manifest.nextSSTableFilename()
+		log.Printf("Creating new SSTable %s\n", path.Base(filename))
+		if err := newSSTable.Save(filename); err != nil {
+			return fmt.Errorf(
+				"failed to save compacted sstable %s: %w",
+				filename,
+				err,
+			)
+		}
+
+		newSSTables = append(newSSTables, filename)
+	}
+
+	oldSSTables := s.manifest.sstables
+	slices.Reverse(newSSTables)
+	filenames := make([]string, len(newSSTables))
+	for i, filename := range newSSTables {
+		filenames[i] = path.Base(filename)
+	}
+
+	log.Println("Updating manifest")
+	if err := s.manifest.save(filenames); err != nil {
+		return fmt.Errorf("unable to save updated manifest: %w", err)
+	}
+
+	for _, filename := range oldSSTables {
+		if err := removeFile(path.Join(s.path, filename)); err != nil {
+			return fmt.Errorf("unable to remove sstable %s: %w", filename, err)
+		}
+	}
+
+	s.operationCount = 0
+	log.Println("Compaction complete")
 	return nil
 }
 
 func clearDanglingSSTables(dir string, ssTables []string) error {
+	log.Println("Clearing dangling SSTables")
+
 	set := make(map[string]struct{})
 	for _, ssTable := range ssTables {
 		set[ssTable] = struct{}{}
@@ -200,6 +355,7 @@ func clearDanglingSSTables(dir string, ssTables []string) error {
 			continue
 		}
 
+		log.Printf("Removing SSTable %s\n", path.Base(filename))
 		if err := removeFile(filename); err != nil {
 			return fmt.Errorf(
 				"unable to remove dangling SST table %q: %w",
@@ -226,5 +382,6 @@ func clearDanglingSSTables(dir string, ssTables []string) error {
 		}
 	}
 
+	log.Println("SSTable cleanup finished")
 	return nil
 }

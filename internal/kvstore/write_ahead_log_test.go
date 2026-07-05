@@ -118,7 +118,8 @@ func TestReplayWriteAheadLog(t *testing.T) {
 		writeSampleData(filename)
 
 		mt := newMemtable()
-		assert.NoError(t, replayWriteAheadLog(filename, mt))
+		err := replayWriteAheadLog(filename, mt)
+		assert.NoError(t, err)
 		assert.Equal(t, len(entries), mt.len())
 		for _, entry := range entries {
 			value, err := mt.get(entry.Key)
@@ -129,7 +130,7 @@ func TestReplayWriteAheadLog(t *testing.T) {
 			case operationDelete.String():
 				assert.ErrorIs(t, err, ErrKeyDeleted)
 			}
-			
+
 			assert.Equal(t, entry.Value, value)
 		}
 	})
@@ -146,7 +147,8 @@ func TestReplayWriteAheadLog(t *testing.T) {
 			}
 
 			mt := newMemtable()
-			assert.NoError(t, replayWriteAheadLog(filename, mt))
+			err := replayWriteAheadLog(filename, mt)
+			assert.NoError(t, err)
 			assert.Equal(t, 0, mt.len())
 		},
 	)
@@ -309,7 +311,8 @@ func TestWALLog(t *testing.T) {
 		}
 
 		mt := newMemtable()
-		assert.NoError(t, replayWriteAheadLog(filename, mt))
+		err := replayWriteAheadLog(filename, mt)
+		assert.NoError(t, err)
 		assert.Equal(t, 3, mt.len())
 		value, err := mt.get("fruit")
 		assert.NoError(t, err)
